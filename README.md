@@ -380,7 +380,7 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
   - Take P1 (keyboard, or a gamepad on port 1) and pick your character.
   - With P1's cursor, click P2's door once. P2 opens as HMN with a random character an AI plays, and the terminal names it. With medium-v2 and the repo's agents that is one of Captain Falcon, Falco, Fox, Ganondorf, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Roy, Samus and Yoshi.
     - Another roll: click the door three more times (CPU, closed, HMN).
-    - A character of your choice: click the door to CPU, pick P2's character, then click the door on to HMN. For Sheik, pick Zelda and hold A as the match loads.
+    - A character of your choice: move your cursor onto P2's token, press A to pick it up, and press A again on another character, as you would with a CPU's token. For Sheik, pick Zelda and hold A as the match loads.
     - `--p2-pick off` opens the door with no character, as the game does.
   - Choose a stage: Final Destination for every agent except Falcon's (Battlefield). The terminal names the agent at each match start.
 - **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
@@ -454,7 +454,7 @@ For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You dow
 
 6. **In the game.**
    - Click the game window so it gets the keyboard.
-   - Set up the match as in [Play](#play). You are P1. Click P2's door once: P2 opens as HMN with a random character an AI plays. To choose it yourself, switch P2 to CPU, pick its character, then switch it back to HMN.
+   - Set up the match as in [Play](#play). You are P1. Click P2's door once: P2 opens as HMN with a random character an AI plays. To choose it yourself, pick up P2's token with your cursor (A) and drop it on another character.
      - The newer Phillip plays Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi.
      - The 2017 agents also cover Ganondorf and Roy.
      - Anyone else stands still.

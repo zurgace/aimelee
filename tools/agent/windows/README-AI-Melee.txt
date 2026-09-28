@@ -33,8 +33,8 @@ Double-click "Play AI-Melee.bat".
 - In the game: take P1 (keyboard, or a controller) and pick anyone.
   With P1's cursor click P2's door once: P2 opens as HMN with a random
   character an AI plays (three more clicks roll again). To choose it
-  yourself, click P2's door to CPU, pick P2's character, then click the
-  door on to HMN (Sheik: pick Zelda, hold A as the match loads). The
+  yourself, pick up P2's token with your cursor (A) and drop it on
+  another character (Sheik: pick Zelda, hold A as the match loads). The
   newer Phillip plays
   Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth,
   Peach, Pikachu, Samus, Sheik and Yoshi; the 2017 agents also cover
