@@ -137,6 +137,10 @@ static bool in_fight(void) {
     return k == GS_VS || k == GS_SUDDEN_DEATH;
 }
 
+static bool on_results_screen(void) {
+    return gm_804D6720 != NULL && gm_804D6720->scene_kind == GS_RESULTS;
+}
+
 static void pad_to_wire(AgentPad* w, const PADStatus* p) {
     memset(w, 0, sizeof *w);
     w->button = p->button;
@@ -254,7 +258,10 @@ static void fight_over(void) {
  * netplay's write_head does for a remote player. Outside a fight, or with
  * no agent driving, an unplugged agent port reads as a connected neutral
  * pad instead: the CSS only lets a door be switched to HMN when its port
- * has a controller (mncharsel.c), and this is how you seat the agent. */
+ * has a controller (mncharsel.c), and this is how you seat the agent.
+ * Except on the results screen, which waits for every plugged-in human to
+ * press Start but counts an unplugged one as ready (gmresultplayer.c): there
+ * the port stays unplugged, so one Start from the player moves on. */
 static void inject(PADStatus* head) {
     PADStatus* mine = &head[s_port];
     static const AgentPad neutral;
@@ -285,7 +292,7 @@ static void inject(PADStatus* head) {
         }
         return;
     }
-    if (mine->err != PAD_ERR_NONE) {
+    if (mine->err != PAD_ERR_NONE && !on_results_screen()) {
         pad_from_wire(mine, &neutral);
     }
 }
