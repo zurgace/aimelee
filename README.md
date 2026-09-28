@@ -273,7 +273,7 @@ Six steps. The first run then sets up both AIs by itself, which takes a while on
    sudo pacman -S --needed base-devel git cmake ninja python python-numpy uv \
        vulkan-icd-loader openssl curl libx11 libxext libxrandr libxcursor libxi \
        libxfixes libxss libxkbcommon libxtst wayland wayland-protocols libdecor \
-       alsa-lib libpulse dbus systemd-libs
+       alsa-lib libpulse dbus systemd-libs tk
    ```
 
    You don't need to install another Python version: [uv](https://docs.astral.sh/uv/) fetches the ones the AIs need (3.12 for slippi-ai, 3.11 for converting the 2017 agents) into their own environments.
@@ -302,7 +302,15 @@ Six steps. The first run then sets up both AIs by itself, which takes a while on
    set -Ux MELEE_DISC ~/Games/Melee/GALE01.iso
    ```
 
-5. **An `ai-melee` command** (optional). Afterwards `ai-melee`, `ai-melee --quick` or `ai-melee --brain classic` work from any directory.
+5. **The AI-Melee shortcut.** This adds AI-Melee to your app menu (under Games) and puts an icon on your desktop. Clicking it opens the AI-Melee launcher, with no terminal.
+
+   ```fish
+   python3 ~/src/ai-melee/tools/agent/launcher.py --install
+   ```
+
+   `--uninstall` removes both again. The launcher needs Tk (`tk`, in step 1).
+
+   **For the terminal instead,** an `ai-melee` command: afterwards `ai-melee`, `ai-melee --quick` or `ai-melee --brain classic` work from any directory.
 
    ```fish
    function ai-melee --description 'Play Melee against Phillip (AI-Melee)'
@@ -311,12 +319,12 @@ Six steps. The first run then sets up both AIs by itself, which takes a while on
    funcsave ai-melee
    ```
 
-6. **First run.** Run `ai-melee` (or `python3 tools/agent/play.py` from `~/src/ai-melee`). The first time, before the game opens, it:
+6. **First run.** Click the AI-Melee icon and press **Play** (or run `ai-melee` in a terminal). It asks for your disc once if it doesn't know it yet. The first time, before the game opens, it:
    - converts the 2017 agents from Phillip's checkpoints with TensorFlow 2.13 (about 250 MB of downloads, a few minutes);
    - sets up the newer Phillip: slippi-ai's own Python 3.12 environment in `tools/agent/slippi-env` (about 2.5 GB, the longest step), then its medium-v2 model from Dropbox;
    - times one model step on your machine and prints which characters it plays.
 
-   Every later start takes seconds. Wait for `slippi: model ready` before starting a match.
+   The launcher shows each step as it goes; **Show log** has the details. Every later start takes seconds. Wait for **AI ready** (`slippi: model ready` in the terminal) before starting a match.
 
    To convert the 2017 agents by hand instead, keep the quotes around `tensorflow-cpu==2.13.*`; fish reads an unquoted `*` as a file glob and stops with "No matches for wildcard":
 
@@ -328,6 +336,21 @@ Six steps. The first run then sets up both AIs by itself, which takes a while on
 **Updating.** `cd ~/src/ai-melee; and git pull; and ninja -C build`. A change to `tools/agent/slippi-requirements.txt` makes the next start rebuild slippi-ai's environment by itself.
 
 ### Play
+
+Click **AI-Melee** in your app menu or on your desktop. The launcher window opens:
+
+- **AI.**
+  - **Best available** (default): the newer Phillip where its model plays the character, the 2017 agents for the rest.
+  - **Newer Phillip only** or **2017 agents only**: the same as `--brain slippi` / `--brain classic`.
+- **Game.**
+  - **Opening P2's door gives it a random character the AI plays** (default on; `--p2-pick`).
+  - **Random stage picks tournament stages only** (default on; `--random-stages`).
+- **Disc.** **Change...** picks your disc image.
+- **Play.** Starts the game. The launcher remembers your choices (in `tools/agent/settings.json`).
+
+While the game runs, the launcher shows what's happening: first-run setup, **AI ready**, and who plays P2 each match. **Show log** shows the full log, which is also saved to `tools/agent/ai-melee.log`. Close the game window (or press **Quit game**) and the launcher comes back, ready for another game. If something goes wrong, it says what in a message box.
+
+From a terminal, with every option (`--help` lists them):
 
 ```fish
 ai-melee          # or, from ~/src/ai-melee: python3 tools/agent/play.py
