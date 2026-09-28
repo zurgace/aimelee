@@ -102,8 +102,10 @@ typedef struct Begin {
 } Begin;
 
 static const char* s_dir;
-static bool s_rec; /* a match is being recorded */
-static bool s_net; /* ...in a netplay session */
+static bool s_rec;    /* a match is being recorded */
+static bool s_file;   /* ...to a .slp file under MELEE_SLP_DIR */
+static bool s_stream; /* ...and/or streamed to the agent bridge (agent_bridge.h) */
+static bool s_net;    /* ...in a netplay session */
 static bool s_atexit;
 static uint16_t s_stage; /* StKind */
 static Staged s_ring[SLP_RING];
@@ -245,6 +247,16 @@ static void finish(const char* why);
 static void fill_pre(SlpPreFrame* pre, int i, const Fighter* fp);
 static void confirm(int32_t upto);
 
+/* Serialized events go to the file, the agent bridge, or both. */
+static void out(const uint8_t* data, size_t n, bool header) {
+    if (s_file) {
+        slp_writer_append(data, n);
+    }
+    if (s_stream) {
+        pc_agent_slp_events(data, n, header);
+    }
+}
+
 static void on_exit_finish(void) {
     finish("exit");
     slp_writer_shutdown();
@@ -258,7 +270,14 @@ void pc_slp_match_start(const struct StartMeleeData* data) {
         const char* d = getenv("MELEE_SLP_DIR");
         s_dir = d != NULL ? d : "";
     }
-    if (s_dir[0] == '\0' || data == NULL || !recorded_mode()) {
+    if (data == NULL || !recorded_mode()) {
+        return;
+    }
+    /* The agent bridge reads the same events a Slippi console streams: with
+     * it on, a match is serialized even when no file is written. */
+    s_file = s_dir[0] != '\0';
+    s_stream = pc_agent_slp_wanted();
+    if (!s_file && !s_stream) {
         return;
     }
     const int scene = gm_804D6720 != NULL ? gm_804D6720->scene_kind : -1;
@@ -308,8 +327,10 @@ void pc_slp_match_start(const struct StartMeleeData* data) {
     uint8_t head[SLP_EVENT_PAYLOADS_SIZE + SLP_GAME_START_SIZE];
     size_t n = slp_event_payloads(head);
     n += slp_game_start(head + n, &gs);
-    slp_writer_begin(s_dir, stem);
-    slp_writer_append(head, n);
+    if (s_file) {
+        slp_writer_begin(s_dir, stem);
+    }
+    out(head, n, true);
 
     for (int i = 0; i < SLP_RING; i++) {
         s_ring[i].net_frame = NO_FRAME;
@@ -332,8 +353,9 @@ void pc_slp_match_start(const struct StartMeleeData* data) {
         s_atexit = true;
         atexit(on_exit_finish); /* runs before main.c's shutdown, registered earlier */
     }
-    pc_log_line(
-        "slp: recording match on stage %u (%s)", (unsigned)s_stage, s_net ? "netplay" : "offline");
+    pc_log_line("slp: recording match on stage %u (%s%s%s)", (unsigned)s_stage,
+        s_net ? "netplay" : "offline", s_file ? ", to a file" : "",
+        s_stream ? ", to the agent bridge" : "");
 }
 
 /* ---- per tick ----------------------------------------------------------- */
@@ -608,9 +630,16 @@ static void capture_end(Staged* s, const VsSceneController* vs) {
     }
 }
 
+static void stage_tick(uint64_t proc_mask);
+
 void pc_slp_tick_end(uint64_t proc_mask) {
-    /* The agent bridge's post-tick snapshot shares this hook (agent_bridge.h). */
+    stage_tick(proc_mask);
+    /* The agent bridge's post-tick snapshot shares this hook (agent_bridge.h);
+     * it goes after the tick's events so a streaming agent has them first. */
     pc_agent_post_tick(proc_mask);
+}
+
+static void stage_tick(uint64_t proc_mask) {
     if (!s_begin.on || !s_rec || !slp_scene()) {
         return;
     }
@@ -665,6 +694,11 @@ void pc_slp_tick_end(uint64_t proc_mask) {
         s_staged_max = f;
     } else if (f > s_staged_max) {
         s_staged_max = f;
+    }
+    /* Offline nothing re-runs this tick, so a streaming agent gets it now
+     * rather than when the next tick begins. */
+    if (s_stream && !s_net) {
+        confirm(f);
     }
 }
 
@@ -730,7 +764,7 @@ static void emit(const Staged* s) {
             s_frame, s->game_end.method, s->game_end.lras, s->game_end.placements[0],
             s->game_end.placements[1], s->game_end.placements[2], s->game_end.placements[3]);
     }
-    slp_writer_append(buf, n);
+    out(buf, n, false);
 }
 
 /* Frames up to `upto` are final: serialize them, in order. */
@@ -763,6 +797,15 @@ static void finish(const char* why) {
         confirm(s_staged_max);
     }
     const int32_t unconfirmed = s_have ? s_staged_max - s_emitted : 0;
+    if (s_stream) {
+        pc_agent_slp_end();
+    }
+    if (!s_file) {
+        s_rec = false;
+        s_have = false;
+        s_stream = false;
+        return;
+    }
     SlpMeta* m = calloc(1, sizeof *m);
     uint8_t* meta = malloc(4096);
     if (m != NULL && meta != NULL) {
@@ -794,6 +837,8 @@ static void finish(const char* why) {
         (int)unconfirmed, s_lost);
     s_rec = false;
     s_have = false;
+    s_file = false;
+    s_stream = false;
 }
 
 void pc_slp_match_end(void) {

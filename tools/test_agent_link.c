@@ -82,7 +82,7 @@ static int client_connect(void) {
 /* Read one whole message with a deadline; returns its type or -1. */
 static int client_read(int fd, void* payload, size_t cap, uint16_t* size) {
     AgentMsgHeader h;
-    uint8_t buf[sizeof h + sizeof(AgentState)];
+    uint8_t buf[sizeof h];
     size_t have = 0;
     const int64_t deadline = now_us() + 1000000;
     while (now_us() < deadline) {
@@ -468,8 +468,45 @@ static int free_port(void) {
     return ntohs(in.sin_port);
 }
 
+static void test_events(void) {
+    fprintf(stderr, "Slippi event messages\n");
+    AgentLinkConfig c = config(2000, 30, AGENT_SYNC_LOCKSTEP);
+    EXPECT(agent_link_open(&c));
+    static uint8_t data[AGENT_MAX_EVENTS_SIZE + 1];
+    for (size_t i = 0; i < sizeof data; i++) {
+        data[i] = (uint8_t)(i * 7);
+    }
+    EXPECT(!agent_link_send_events(data, 100)); /* nobody connected */
+    const int fd = client_connect();
+    EXPECT(fd >= 0);
+    poll_until_connected();
+    AgentHello hello;
+    uint16_t size = 0;
+    EXPECT(client_read(fd, &hello, sizeof hello, &size) == AGENT_MSG_HELLO);
+
+    static uint8_t got[AGENT_MAX_EVENTS_SIZE];
+    EXPECT(agent_link_send_events(data, 3000));
+    EXPECT(client_read(fd, got, sizeof got, &size) == AGENT_MSG_SLP_EVENTS);
+    EXPECT(size == 3000 && memcmp(got, data, 3000) == 0);
+    EXPECT(agent_link_send_events(data, AGENT_MAX_EVENTS_SIZE)); /* the largest */
+    EXPECT(client_read(fd, got, sizeof got, &size) == AGENT_MSG_SLP_EVENTS);
+    EXPECT(size == AGENT_MAX_EVENTS_SIZE && memcmp(got, data, size) == 0);
+    EXPECT(!agent_link_send_events(data, AGENT_MAX_EVENTS_SIZE + 1)); /* refused, not cut */
+    /* The framing survives: a state still reads whole after them. */
+    AgentState st;
+    memset(&st, 0, sizeof st);
+    st.tick = 7;
+    agent_link_send_state(&st);
+    AgentState gst;
+    EXPECT(client_read(fd, &gst, sizeof gst, &size) == AGENT_MSG_STATE && gst.tick == 7);
+    EXPECT(agent_link_stats()->events_sent == 2);
+    close(fd);
+    agent_link_close();
+}
+
 static void run_suite(void) {
     test_handshake_and_state();
+    test_events();
     test_lockstep();
     test_async();
     test_disconnect_and_errors();

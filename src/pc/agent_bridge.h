@@ -24,6 +24,7 @@
 #define PC_AGENT_BRIDGE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -36,6 +37,12 @@ bool pc_agent_enabled(void);
 void pc_agent_pre_tick(void);
 /* After the tick's GObj procs; `proc_mask` as for pc_slp_tick_end. */
 void pc_agent_post_tick(uint64_t proc_mask);
+/* slp.c: whether to serialize matches for the bridge (it is on), then each
+ * chunk of events as serialized -- the match header (`header`), then each
+ * frame's -- and the end of the match. */
+bool pc_agent_slp_wanted(void);
+void pc_agent_slp_events(const uint8_t* data, size_t size, bool header);
+void pc_agent_slp_end(void);
 
 #ifdef __cplusplus
 }

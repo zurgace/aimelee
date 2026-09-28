@@ -109,7 +109,9 @@ static void wait_readable(sock_t fd, int64_t us) {
 #endif
 
 #define IN_BUF_SIZE 4096
-#define MAX_MSG_SIZE (sizeof(AgentMsgHeader) + sizeof(AgentState))
+#define MAX_PAYLOAD                                                                                \
+    (sizeof(AgentState) > AGENT_MAX_EVENTS_SIZE ? sizeof(AgentState) : AGENT_MAX_EVENTS_SIZE)
+#define MAX_MSG_SIZE (sizeof(AgentMsgHeader) + MAX_PAYLOAD)
 #define PENDING_INPUTS 16
 
 static struct {
@@ -493,6 +495,20 @@ void agent_link_send_state(const AgentState* st) {
     } else if (s.client_fd != SOCK_INVALID) {
         s.stats.states_dropped++;
     }
+}
+
+bool agent_link_send_events(const void* data, size_t size) {
+    if (s.client_fd == SOCK_INVALID || size > AGENT_MAX_EVENTS_SIZE) {
+        return false;
+    }
+    if (send_msg(AGENT_MSG_SLP_EVENTS, data, (uint16_t)size)) {
+        s.stats.events_sent++;
+        return true;
+    }
+    if (s.client_fd != SOCK_INVALID) {
+        s.stats.events_dropped++;
+    }
+    return false;
 }
 
 /* Index of the input for exactly `tick`, or of the newest one before it. */

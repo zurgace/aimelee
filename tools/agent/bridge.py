@@ -15,12 +15,14 @@ import struct
 import time
 from dataclasses import dataclass, field, fields
 
-PROTO_VERSION = 1
+PROTO_VERSION = 2
+SUPPORTED_VERSIONS = (1, 2)  # v2 adds MSG_SLP_EVENTS; the other layouts are unchanged
 MAGIC = 0x4247414D
 
 MSG_HELLO = 1
 MSG_STATE = 2
 MSG_INPUT = 3
+MSG_SLP_EVENTS = 4  # raw Slippi replay events of a frame (v2), before that tick's STATE
 
 SYNC_LOCKSTEP = 0
 SYNC_ASYNC = 1
@@ -210,11 +212,15 @@ class Hello:
 class BridgeClient:
     """One connection to the game. Blocking reads with optional timeouts."""
 
-    def __init__(self, path, connect_timeout=30.0):
+    def __init__(self, path, connect_timeout=30.0, collect_slp=False):
         self.path = path
         self.sock = None
         self.hello = None
         self.last_payload = b""  # raw bytes of the last State, for recordings
+        # With collect_slp, the Slippi event messages received since the last
+        # take_slp(); otherwise they are dropped as they arrive.
+        self.collect_slp = collect_slp
+        self._slp = []
         self._buf = bytearray()
         self._connect(connect_timeout)
 
@@ -241,7 +247,7 @@ class BridgeClient:
             raise ConnectionError(f"expected HELLO, got message type {msg_type}")
         v = HELLO.unpack(payload)
         self.hello = Hello(v[0], v[1], v[2], v[3], v[5], v[6].split(b"\0", 1)[0].decode(errors="replace"))
-        if self.hello.proto_version != PROTO_VERSION or self.hello.state_size != STATE_SIZE:
+        if self.hello.proto_version not in SUPPORTED_VERSIONS or self.hello.state_size != STATE_SIZE:
             raise ConnectionError(
                 f"bridge protocol mismatch: game speaks v{self.hello.proto_version} "
                 f"(state {self.hello.state_size} bytes), this tool v{PROTO_VERSION} ({STATE_SIZE})")
@@ -282,6 +288,14 @@ class BridgeClient:
             if msg_type == MSG_STATE:
                 self.last_payload = payload
                 return State.unpack(payload)
+            if msg_type == MSG_SLP_EVENTS and self.collect_slp:
+                self._slp.append(payload)
+
+    def take_slp(self):
+        """The Slippi event bytes received since the last call, in order."""
+        out = b"".join(self._slp)
+        self._slp.clear()
+        return out
 
     def states(self, timeout=None):
         while True:

@@ -14,6 +14,7 @@
 #include "pc/agent_proto.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -40,6 +41,8 @@ typedef struct AgentLinkStats {
     uint32_t clients; /* connections accepted */
     uint32_t states_sent;
     uint32_t states_dropped; /* the agent was not reading */
+    uint32_t events_sent;
+    uint32_t events_dropped;
     uint32_t inputs_received;
     uint32_t inputs_stale; /* arrived after a newer one had already applied */
     uint32_t misses;       /* lockstep waits that timed out */
@@ -56,6 +59,9 @@ bool agent_link_connected(void);
 bool agent_link_active(void);
 /* Queue one state for the client; dropped (and counted) if it is not reading. */
 void agent_link_send_state(const AgentState* st);
+/* Queue one AGENT_MSG_SLP_EVENTS message. False when it was not sent (no
+ * client, too large, or the client is not reading). */
+bool agent_link_send_events(const void* data, size_t size);
 /* The pad the agent wants on `tick`. With `wait` in lockstep mode this blocks
  * up to the timeout for the input targeted at `tick`. */
 AgentTake agent_link_take_input(uint32_t tick, bool wait, AgentPad* out);

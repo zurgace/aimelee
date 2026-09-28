@@ -8,7 +8,13 @@
  * the sizes below are part of the protocol and checked at compile time.
  *
  * game -> agent: AGENT_MSG_HELLO once on connect, then AGENT_MSG_STATE after
- *                every simulation tick (menus included).
+ *                every simulation tick (menus included). During a VS match
+ *                each tick's STATE is preceded by AGENT_MSG_SLP_EVENTS: the
+ *                Slippi replay events of that frame (src/pc/slp.c), byte for
+ *                byte what a Slippi console streams, so libmelee can parse
+ *                them. The match's first such message is its header (Event
+ *                Payloads + Game Start); a client connecting mid-match gets
+ *                the header before its first frame.
  * agent -> game: AGENT_MSG_INPUT, the pad for one tick of the agent's port.
  *
  * Bump AGENT_PROTO_VERSION on any layout change. */
@@ -21,14 +27,17 @@
 #error "agent_proto.h assumes a little-endian host"
 #endif
 
-#define AGENT_PROTO_VERSION 1
+#define AGENT_PROTO_VERSION 2
 #define AGENT_MSG_MAGIC 0x4247414Du /* "MAGB" as bytes on the wire */
 
 enum AgentMsgType {
     AGENT_MSG_HELLO = 1,
     AGENT_MSG_STATE = 2,
     AGENT_MSG_INPUT = 3,
+    AGENT_MSG_SLP_EVENTS = 4, /* payload: raw Slippi events, at most AGENT_MAX_EVENTS_SIZE */
 };
+
+#define AGENT_MAX_EVENTS_SIZE 8192
 
 #define AGENT_MAX_PORTS 4
 

@@ -361,6 +361,51 @@ void pc_agent_pre_tick(void) {
     }
 }
 
+/* The Slippi event stream (slp.c). The match header is kept so a client
+ * that connects mid-match (a restarted agent) can still parse what follows;
+ * each client gets it once, before its first frame. */
+static uint8_t s_slp_header[AGENT_MAX_EVENTS_SIZE];
+static size_t s_slp_header_len;
+static uint32_t s_slp_header_client; /* agent_link_stats()->clients when it last went out */
+
+bool pc_agent_slp_wanted(void) {
+    return usable();
+}
+
+void pc_agent_slp_events(const uint8_t* data, size_t size, bool header) {
+    if (!usable()) {
+        return;
+    }
+    if (header) {
+        if (size > sizeof s_slp_header) {
+            pc_log_line("agent: Slippi header of %u bytes too large; no event stream this match",
+                (unsigned)size);
+            s_slp_header_len = 0;
+            return;
+        }
+        memcpy(s_slp_header, data, size);
+        s_slp_header_len = size;
+        s_slp_header_client = 0;
+    }
+    if (s_slp_header_len == 0 || !agent_link_connected()) {
+        return;
+    }
+    const uint32_t client = agent_link_stats()->clients;
+    if (s_slp_header_client != client) {
+        if (!agent_link_send_events(s_slp_header, s_slp_header_len)) {
+            return; /* not reading: the header goes before the next frame instead */
+        }
+        s_slp_header_client = client;
+    }
+    if (!header) {
+        agent_link_send_events(data, size);
+    }
+}
+
+void pc_agent_slp_end(void) {
+    s_slp_header_len = 0;
+}
+
 void pc_agent_post_tick(uint64_t proc_mask) {
     if (!usable()) {
         return;
