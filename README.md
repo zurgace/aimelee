@@ -318,14 +318,15 @@ ai-melee          # or, from ~/src/ai-melee: python3 tools/agent/play.py
 
 The game opens its own window, and the terminal keeps the agent's log: match start, matchup warnings, and latency and late-input counts when a match ends. Click the game window before you play: the keyboard only reaches the game while its window has focus.
 
-- **Set up the match.** Phillip plays P2 as whichever character you give it:
+- **Set up the match.** Phillip plays P2 as whichever character you give it. On Final Destination a character gets its Final Destination agent, on any other stage its Battlefield agent, and a character with only one of the two uses it everywhere:
 
-  | P2's character | Phillip agent | Trained on |
+  | P2's character | Final Destination agent | Battlefield agent |
   |---|---|---|
-  | Captain Falcon | FalconFalconBF | Battlefield, vs Falcon |
-  | Fox, Falco, Marth, Peach, Sheik | their own agent | Final Destination |
-  | Ganondorf, Roy | Falcon's or Marth's agent stands in (clones) | as above |
-  | Jigglypuff | only with the `delay18` weights from Phillip's Google Drive | Final Destination |
+  | Captain Falcon | (uses the Battlefield one) | FalconFalconBF, trained vs Falcon |
+  | Fox, Marth, Peach, Sheik | their own agent | (uses the FD one) |
+  | Falco | delay0/FalcoFD | delay18/FalcoBF, with the Google Drive agents (else FalcoFD) |
+  | Ganondorf, Roy | Falcon's or Marth's agent stands in (clones) | same |
+  | Jigglypuff | delay18/PuffFD, with the Google Drive agents | (uses the FD one) |
   | anyone else | none: P2 stands still, so set P2 to CPU instead | |
 
   - Take P1 (keyboard, or a gamepad on port 1) and pick your character.
@@ -334,6 +335,7 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
 - **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
 - **After the match.** P2 counts as ready on the results screen, so press Start once and you're back at the character select, with P2 still seated.
 - **Quick start.** `--quick` skips the menus and boots straight into a Falcon vs Falcon match on Battlefield, or into `--agent`'s matchup.
+- **More agents.** The `delay18` agents are not in Phillip's repo; they're in the "full set of trained agents" zip linked from [Phillip's README](https://github.com/vladfi1/phillip#readme) (Google Drive). Phillip's author calls `delay18/FalcoBF` the best human-like agent. Put each one's files (`params`, `snapshot*`) in `../phillip/agents/delay18/<name>/`, and the next `ai-melee` converts and uses them. They react 18 frames late (12 for Puff), by design.
 - **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
 - **One agent for everyone.** `--agent <name>` plays that one agent whatever P2 picks, as before. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
 - **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help`.

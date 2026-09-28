@@ -216,13 +216,14 @@ class AgentLoopTest(unittest.TestCase):
             make_model(marth, char="marth", seed=9, sees_char=True)
             make_model(falcon, char="falcon")
             roster_file = Path(tmp) / "roster.json"
+            # The fake game plays Battlefield: Marth's only (FD) agent plays there too.
             roster_file.write_text(json.dumps({
-                str(MARTH): {"agent": "MarthTiny", "weights": str(marth), "char": "marth",
-                             "stand_in_for": None},
-                str(ROY): {"agent": "MarthTiny", "weights": str(marth), "char": "marth",
-                           "stand_in_for": "roy"},
-                "0": {"agent": "FalconTiny", "weights": str(falcon), "char": "falcon",
-                      "stand_in_for": None}}))
+                str(MARTH): {"final_destination": {"agent": "MarthTiny", "weights": str(marth),
+                                                   "char": "marth", "stand_in_for": None}},
+                str(ROY): {"final_destination": {"agent": "MarthTiny", "weights": str(marth),
+                                                 "char": "marth", "stand_in_for": "roy"}},
+                "0": {"battlefield": {"agent": "FalconTiny", "weights": str(falcon), "char": "falcon",
+                                      "stand_in_for": None}}}))
             sock = str(Path(tmp) / "agent.sock")
             game = FakeGame(sock, script)
             game.start()

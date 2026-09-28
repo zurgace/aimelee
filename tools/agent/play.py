@@ -211,15 +211,16 @@ def ensure_roster(args):
     chosen, skipped = roster.choose(args.phillip, args.reaction)
     if not chosen:
         fail(f"no usable agents in {args.phillip}/agents")
-    missing = [a for a in chosen.values() if not weights_path(a, None).exists()]
+    missing = [a for a in roster.agents_in(chosen) if not weights_path(a, None).exists()]
     if missing:
         export(missing, args.phillip)
     path = HERE / "weights" / "roster.json"
     path.parent.mkdir(exist_ok=True)
     roster.write(path, chosen, lambda a: weights_path(a, None))
     print(f"play: agents: {roster.summary(chosen)}", flush=True)
-    for agent, why in skipped:
-        print(f"play: not using {agent}: {why}", flush=True)
+    if skipped:
+        print(f"play: not in your phillip checkout: {', '.join(a for a, _ in skipped)} (Phillip's "
+              "Google Drive zip has them; see README)", flush=True)
     return path
 
 

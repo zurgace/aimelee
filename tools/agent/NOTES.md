@@ -82,20 +82,24 @@ The budget per tick is 16.7 ms, and the agent gets about one frame of slack anyw
 
 ## Roster: the agent follows P2's character
 
-`play.py` (without `--agent`) writes `weights/roster.json` from `roster.py`, and `agent.py --roster` picks the agent at each match start from the agent port's CKind. The pick happens on the first tick the fighter is in the state, inside the 120-frame warm-up.
+`play.py` (without `--agent`) writes `weights/roster.json` from `roster.py`, and `agent.py --roster` picks the agent at each match start from the agent port's CKind and the stage. The pick happens on the first tick the fighter is in the state, inside the 120-frame warm-up.
 
-| P2's character | Agent (default) | `--reaction 1` | `--reaction 2` |
-|---|---|---|---|
-| Captain Falcon | FalconFalconBF | same | same |
-| Fox | delay0/FoxFD | same (FoxFD1 excluded) | same |
-| Falco | delay0/FalcoFD | same | same |
-| Marth | MarthFD0 | MarthFD1 | MarthFD1 |
-| Peach | PeachFD | PeachFD1 | PeachFD2 |
-| Sheik | SheikFD | SheikFD1 | SheikFD2 |
-| Jigglypuff | delay18/PuffFD, only with its weights from Google Drive | same | same |
-| Ganondorf | Falcon's agent as a stand-in | | |
-| Roy | Marth's agent as a stand-in | | |
-| anyone else | none: the port is released for the match | | |
+**Stage rule.** On Final Destination a character gets its FD agent; on any other stage it gets its Battlefield agent. A character with only one of the two uses it everywhere. Only Falcon (FalconFalconBF) and Falco (delay18/FalcoBF) have Battlefield agents. Falco's is in the Google Drive zip, not the repo, so until it's added Falco plays FalcoFD everywhere. `delay18/FalcoFD`'s params say battlefield, but the roster goes by its name and treats it as the FD agent.
+
+| P2's character | FD agent (default) | BF agent | `--reaction 1` | `--reaction 2` |
+|---|---|---|---|---|
+| Captain Falcon | (BF one) | FalconFalconBF | same | same |
+| Fox | delay0/FoxFD | (FD one) | same (FoxFD1 excluded) | same |
+| Falco | delay0/FalcoFD | delay18/FalcoBF if present | same | same |
+| Marth | MarthFD0 | (FD one) | MarthFD1 | MarthFD1 |
+| Peach | PeachFD | (FD one) | PeachFD1 | PeachFD2 |
+| Sheik | SheikFD | (FD one) | SheikFD1 | SheikFD2 |
+| Jigglypuff | delay18/PuffFD, only with its weights from Google Drive | (FD one) | same | same |
+| Ganondorf | Falcon's agent as a stand-in | | | |
+| Roy | Marth's agent as a stand-in | | | |
+| anyone else | none: the port is released for the match | | | |
+
+The delay18 agents (6 steps, 18 frames; Puff 4) are only picked when they are the only agent for that stage, since `--reaction` tops out at 2. They're unverified here: their weights aren't in the repo, so `verify_model.py` hasn't run on them. Run it after adding them.
 
 - **Stand-ins.** The agent keeps its own character for the banned-action rules. The agent port's `character` observation is set to the agent's own character, since the network was only trained on it; FalconFalconBF ignores the character input anyway.
 - **No agent.** The agent logs which characters are covered and releases the port for the match. P2 stands still, or a controller on P2 plays it.

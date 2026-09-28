@@ -21,9 +21,10 @@ so the character select can seat it). If the game goes away the agent waits
 for it to come back unless --once.
 
 With --roster (a file play.py writes from roster.py) the agent is chosen per
-match from the agent port's character: Phillip's agent for that character, a
-clone's as a stand-in (Ganondorf, Roy), or none -- then the port is released
-for the whole match.
+match from the agent port's character and the stage: Phillip's agent for that
+character (its Final Destination agent on FD, its Battlefield one elsewhere,
+or whichever it has), a clone's as a stand-in (Ganondorf, Roy), or none --
+then the port is released for the whole match.
 """
 
 import os
@@ -137,11 +138,12 @@ class Runner:
                  f"({self.model.delay * self.model.act_every} frames), memory {self.model.memory}, "
                  f"epsilon {self.args.epsilon}")
 
-    def pick(self, ckind):
-        """Roster mode: choose this match's agent from the port's character.
-        False when no agent plays it."""
+    def pick(self, ckind, stkind):
+        """Roster mode: choose this match's agent from the port's character
+        and the stage. False when no agent plays it."""
         rd = self.roster_mod
-        entry = self.roster.get(ckind)
+        by_stage = self.roster.get(ckind)
+        entry = rd.for_stage(by_stage, stkind) if by_stage else None
         if entry is None:
             covered = sorted({rd.display(ck) for ck in self.roster})
             self.log(f"no Phillip agent plays {rd.display(ckind)}; the port stands still this match. "
@@ -212,7 +214,7 @@ class Runner:
         if self.agent is None:
             if not me.present:
                 return self.pad
-            if not self.pick(me.ckind):
+            if not self.pick(me.ckind, st.stage):
                 self.idle = True
                 return None
         if self.opp_port is None:
