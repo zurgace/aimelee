@@ -1,636 +1,223 @@
-# ~melee-pc~ ai-melee
-using the readme from melee-pc as the base, but with some excerpts tied to ai-melee. may be corrected in the future
+# AI-Melee
 
-> **AI-Melee.** This fork adds an agent bridge for playing offline against the
-> [Phillip](https://github.com/vladfi1/phillip) AI. Install and play on
-> [Linux (CachyOS)](#install-on-linux-cachyos) or [Windows 10/11](#windows-10).
+Play Super Smash Bros. Melee on your PC against **Phillip**, the Melee AI. The game runs natively, without Dolphin. You play P1 with a keyboard or controller, and Phillip plays P2.
 
-**Beta, for testing only.** "melee-pc" is a working name. Online play with
-rollback netcode is in development. This branch includes LAN, internet friend
-codes, Unranked matchmaking and ranked best-of-three sets. See
-[Netplay](#netplay-lan-and-direct-ip-prototype) for setup and verification limits.
+- **The newer Phillip** ([slippi-ai](https://github.com/vladfi1/slippi-ai)) plays by default. It's the bot you meet on Slippi, trained on human replays and then by self-play. It reacts about 21 frames late, like a person online. It plays Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi.
+- **The 2017 Phillip** ([phillip](https://github.com/vladfi1/phillip)) covers what the newer one doesn't: Ganondorf and Roy (with Falcon's and Marth's agents), and anyone else it has an agent for.
+- **Your own disc.** You need a Super Smash Bros. Melee NTSC-U 1.02 (GALE01) disc image. AI-Melee contains no game data.
 
-A native PC port of Super Smash Bros. Melee (NTSC-U 1.02), built from
-[doldecomp/melee](https://github.com/doldecomp/melee) on top of
-[aurora](https://github.com/encounter/aurora) (GX/OS/PAD/DVD/CARD/THP
-compatibility layer with a WebGPU backend) and SDL3. Same approach as
-[dusklight](https://github.com/TwilitRealm/dusklight).
+## Contents
 
-You need your own disc image. **No game data ships here.** The decompiled game
-code is not licensed and is not relicensed by this project; only the port code
-is GPL-3.0-or-later. Details under [License](#license).
+- [Built on](#built-on)
+- [Getting access](#getting-access)
+- [Install on Linux (CachyOS)](#install-on-linux-cachyos)
+- [Install on Windows 10/11](#install-on-windows-1011)
+- [Playing](#playing)
+- [Troubleshooting](#troubleshooting)
+- [For the maintainer: making the Windows download](#for-the-maintainer-making-the-windows-download)
+- [License](#license)
 
-> New here? The **[project site](https://999sian.github.io/melee-pc/)** has the
-> five-step setup, the FAQ (supported disc, Windows first run, older Intel GPUs,
-> first-use shader stutter, Android requirements, where the log and settings
-> live) and the per-platform known-issues list. Bugs go through the
-> [bug report form](https://github.com/999sian/melee-pc/issues/new?template=bug_report.yml);
-> questions on [Discord](https://discord.gg/aurt34svq).
+## Built on
 
-## Features
+AI-Melee is glue between existing projects. Most of the code here is theirs.
 
-- Native builds for Linux (x86-64, aarch64), Windows (x86-64, ARM64), macOS,
-  Android and iOS, rendered through Dawn/WebGPU (Vulkan, D3D12, D3D11, Metal)
-  and SDL3.
-- RmlUi launcher with disc selection and SHA-1 verification against the Redump
-  database before boot.
-- In-game settings overlay on **F1**, with the game paused underneath.
-- Internal resolution from Auto to 10x native (6400x4800).
-- Post-processing shaders: area sampling, CRT scanlines, vibrant.
-- 4x MSAA and anisotropic filtering up to 16x.
-- Gamepad remapping, including C-stick directions, saved per device.
-- Software AX audio mixer with Master, Music and SFX volume controls.
-- User `.ogg` / `.wav` tracks replace stage BGM.
-- Dolphin-compatible `.gci` memory cards and Dolphin-format HD texture packs.
-- Cheats: Unlock Everything, hazardless (Frozen) Pokémon Stadium, free pause
-  camera, Wide 16:9 HUD.
-- UCF 0.8x dashback and shield drop, and a raw 1000 Hz read path for the
-  official GameCube controller adapter.
-
-What each of those actually covers, including the parts that are unfinished, is
-in the [status table](#status) below.
-
-## Screenshots
-
-![Title screen](docs/screenshots/title.png)
-
-| | |
+| Project | What it provides |
 |---|---|
-| ![Main menu](docs/screenshots/main-menu.png) | ![Character select](docs/screenshots/character-select.png) |
-| Main menu | Character select |
-| ![Stage select](docs/screenshots/stage-select.png) | ![Gameplay](docs/screenshots/gameplay-4p.png) |
-| Stage select | Four-player match |
-| ![Gameplay](docs/screenshots/gameplay-onett.png) | ![Settings](docs/screenshots/pc-settings.png) |
-| Onett | F1 settings overlay |
+| [melee-pc](https://github.com/999sian/melee-pc) by 999sian | The native PC port of Melee that AI-Melee is a fork of: the renderer, audio, input, menus and the decompiled game code it runs. |
+| [doldecomp/melee](https://github.com/doldecomp/melee) | The decompilation of Melee that melee-pc builds on. |
+| [slippi-ai](https://github.com/vladfi1/slippi-ai) by vladfi1 | The newer Phillip: the model, and the code that runs it. |
+| [libmelee](https://github.com/altf4/libmelee) by altf4 | Reads the game state the way slippi-ai expects it. |
+| [phillip](https://github.com/vladfi1/phillip) by vladfi1 | The 2017 agents and their trained networks. |
 
-![Launcher](docs/screenshots/launcher.png)
+AI-Melee's own part:
+- **The bridge.** The game hands its state to the AI over a local socket, and takes the AI's controller input back.
+- **The Python side.** It runs both Phillips.
+- **A few character-select conveniences:** P2 opens with a random AI character, and you can move P2's token.
+- **Tournament-only random stages.**
+- **The launcher.**
 
-## Status
+## Getting access
 
-Every mode boots and plays: VS, 1-P Classic / Adventure / All-Star to
-completion with results and score saved, Training, Stadium (Target Test,
-Home-Run Contest, 10-Man Melee), Event Match, Trophy gallery, memory card
-create / load, opening movie and attract demos.
+This repository is private. Ask its owner to invite you on GitHub, and accept the invitation from your GitHub notifications or email. After that, the links below work while you are signed in to GitHub.
 
-**This table is the single source of truth for feature status.** The release
-notes, the project site and `ROADMAP.md` defer to it; when they disagree, this
-table is right and the other one is stale.
+## Install on Linux (CachyOS)
 
-| Feature | Status | Note |
-|---|---|---|
-| Linux x86-64 / aarch64 | done | AppImage and tarball, both built in CI. |
-| Windows x86-64 / ARM64 | done | D3D12 or Vulkan; ARM64 via llvm-mingw. |
-| Direct3D 11 backend (Windows) | partial | Compiled into the shipped Dawn for both architectures, ordered after D3D12 and selectable as `MELEE_BACKEND=d3d11`. The adapter enumerates and the fail-over to D3D12 is proven, but no working D3D11 device has been observed; Wine/Proton cannot create one (`CreateDeviceContextState` returns `E_INVALIDARG`), so it is unverified on real Windows and on the Intel Gen7 hardware it exists for. |
-| Android arm64 | done | Drawn on-screen GameCube overlay with opacity, deadzone and haptics settings; hides itself when a physical gamepad is connected. |
-| iOS arm64 | partial | Sideloadable IPA on Metal, cross-built from Linux. Touch input is fixed invisible screen regions (stick on the left half, face buttons bottom right) with no drawn overlay, no calibration and no gamepad auto-hide -- the Android overlay is Android-only. |
-| macOS Apple Silicon / Intel | partial | Apple Silicon tested; the Intel job is `continue-on-error` in CI, so a release can ship without an Intel build and none has been run on Intel hardware. |
-| Browser (WebGPU) | partial | [Play in the browser](https://999sian.github.io/melee-pc/play/) with your own raw GALE01 rev 2 image; tested in Chrome. No online play, no gamepad remapping. Build: `tools/browser/build.py`. |
-| PAL disc (GALP01) | partial | Experimental: USA game code on PAL data, English (UK) text, NTSC 60 Hz. Trophy tables are stubbed out rather than read, and there is no reference hash, so PAL images always verify as unknown. |
-| Widescreen 16:9 / window aspect | partial | VS, Sudden Death and Training only; menus, results and cutscenes stay at the original 73:60. |
-| Wide HUD anchoring | done | Separate on/off toggle from the aspect setting, and only moves anything while widescreen is on. Anchors the timer and the 2-4 player HUD groups (damage, stocks, tags); a 1-player HUD keeps its original placement. No configurable margins. |
-| Custom texture packs (Dolphin format) | done | `tex1_*` `.dds` / `.png` including sidecar mips and TLUT hashes, scanned recursively, reloadable from the F1 menu. |
-| Custom soundtrack (`.ogg` / `.wav`) | done | Replaces any track the game streams, not just stage BGM. Files are decoded whole into RAM (not streamed) and loop end to end, so a track's own loop point is ignored. |
-| Unlock Everything / Frozen Stadium / Free camera | done | Cheats tab in the launcher and the F1 menu. |
-| Multi-bus audio (Master / Music / SFX) | done | Three sliders; Master is the output stream gain, Music and SFX are per-voice. |
-| In-app update check | done | Polls GitHub releases, downloads with progress. |
-| Controller rumble | done | SDL gamepads through the game's own `PADControlMotor` calls, and the Android device vibrator when the pad has no rumble. Controller LED / port-colour sync is not implemented. |
-| 1000 Hz GameCube adapter (WUP-028) | partial | Implemented and wired, not yet confirmed against a physical adapter. Raw 0x21 reports are read through SDL's hidapi on the 1000 Hz input thread, so the game would see the controller's real 8-bit values instead of SDL's rescaled ones; adapter slot N is PAD port N, and the slot motors are driven from the game's rumble state. `MELEE_GC_ADAPTER=0` hands the device back to SDL's driver. Linux needs a udev rule; the log prints it. |
-| UCF (dashback, shield drop) | done | UCF 0.8x rules; launcher Gameplay page / F1 port menu, default off, `MELEE_UCF=1`. Reads the octagon-clamped stick rather than UCF's pre-clamp raw queue, which only differs past the 80-unit rim. |
-| Discord Rich Presence | planned | Deferred until API credentials are available. |
-| Extended hazardless stages | planned | Whispy, Randall, FoD platforms. Only Pokémon Stadium is implemented. |
-| 2-player keyboard remapping | planned | The keyboard is port 1 on a fixed layout. |
-| High-refresh interpolation | planned | |
-| Training tools (hitboxes, savestates, frame advance) | planned | |
-| Replay recording (`.slp`) | done | Set `MELEE_SLP_DIR` to record offline or online VS matches; off by default. |
-| Online play (LAN / direct IP) | partial | LAN/direct-IP plus signed internet Direct, Unranked and Ranked implemented. Every datagram is authenticated (protocol 9), so both peers must run the same build, and a connect code is 8 characters after the `#`. Phone VPN to home broadband Direct Connect reached results; broader two-NAT and live ranked acceptance remain pending. See platform matrix below. |
-| RetroAchievements | planned | |
+Written for CachyOS and other Arch-based systems, so package names are pacman's. Commands are typed in a terminal; they work in fish and bash alike. Plan on about 4 GB of disk space.
 
-The phases behind the planned rows, and why they are ordered that way, are in
-[ROADMAP.md](ROADMAP.md).
+1. **Install the packages** (once). Also install your graphics card's Vulkan driver: `nvidia-utils` (NVIDIA), `vulkan-radeon` (AMD) or `vulkan-intel`.
 
-## Download
-
-Builds for every platform are on the
-[releases page](https://github.com/999sian/melee-pc/releases). Release notes
-list the per-platform files, known issues and requirements.
-
-```sh
-./Melee-x86_64.AppImage                  # open the launcher
-./Melee-x86_64.AppImage /path/to/melee.iso
-```
-
-**Melee USA revision 2 (NTSC-U 1.02, GALE01)** is the supported disc. A
-**Europe (PAL, GALP01)** image also boots, with the limits listed in the
-[status table](#status) and the mechanics in
-[porting-notes.md](docs/porting-notes.md#regions). `.iso`,
-`.gcm`, `.ciso` and `.rvz` images are accepted. A valid disc path on the
-command line boots straight in; a missing or invalid one returns to the
-launcher. Settings and the selected path live in `launcher.cfg` in SDL's
-`melee-pc` preference directory (usually `~/.local/share/melee-pc`,
-`%APPDATA%\melee-pc` on Windows, or `~/Library/Application Support/melee-pc`
-on macOS).
-
-Verification reads the disc through nod, compressed images included, and compares
-SHA-1 against the
-[Redump DAT](https://github.com/libretro/libretro-database/blob/master/metadat/redump/Nintendo%20-%20GameCube.dat):
-`d4e70c064cc714ba8400a849cf299dbd1aa326fc`, 1,459,978,240 bytes. It supports
-progress and cancellation, and is not cached between launches. Unverified images
-still play; PAL images have no reference hash and always report as unverified.
-
-Building from source: [docs/building.md](docs/building.md).
-
-## Requirements
-
-The renderer is WebGPU (Dawn) at its compatibility level, so the floor is
-Dawn's per-backend floor:
-
-| Platform | API tried, in order | Floor |
-|---|---|---|
-| Windows 10/11 (x86-64, ARM64) | Direct3D 12 → Direct3D 11 → Vulkan | Feature level 11_0. Dawn refuses D3D12 on Intel Gen7 (HD 4000/4400/4600, Ivy Bridge/Haswell); the intended fallback for those is Direct3D 11, which is untested on that hardware (see the status table). Vulkan 1.1 with a vendor ICD. |
-| Linux (x86-64, aarch64) | Vulkan | Vulkan 1.1 (Mesa radv/anv/hasvk, NVIDIA proprietary or NVK). |
-| macOS / iOS | Metal | Any Metal GPU; Apple Silicon tested, iOS 14+. |
-| Android | Vulkan | Vulkan 1.1, arm64. |
-
-On Windows that means any Intel Gen8 (Broadwell, 2014) or newer, AMD GCN or
-newer, NVIDIA Fermi or newer runs on Direct3D 12. Direct3D 11 is a
-compatibility path, not a performance one (FXC shaders, no DXC). OpenGL is
-never picked automatically: `MELEE_BACKEND=opengl` exists, but Dawn needs
-desktop GL 4.4 for it, it draws with wrong (washed-out) colours on X11 and
-cannot create a surface on Wayland. The log records every backend that was
-skipped and why, then one summary line with the adapter and driver.
-
-The CPU side is light: any x86-64 (SSE2) or arm64 CPU. A VS match holds a
-steady 60 fps with the whole game pinned to two 2.5 GHz Meteor Lake
-low-power E-cores, using about a third of one core in total.
-
-- Keep `resources/` (and on Windows the DLLs: `webgpu_dawn.dll`,
-  `dxcompiler.dll`, `dxil.dll`, `SDL3.dll`, the VC++ runtime) beside the
-  executable. `dxcompiler.dll` and `dxil.dll` are the D3D12 shader compiler;
-  D3D11 needs no extra DLL, since `d3d11.dll`, `dxgi.dll` and the FXC
-  compiler are Windows components.
-- Settings, memory cards, `music/` and `textures/` live in the `melee-pc`
-  preference directory above.
-
-## Controls
-
-Keyboard: arrows or WASD = stick, IJKL = C-stick, X = A, Z = B, C = X, V = Y,
-Q/E = L/R, Tab = Z, Enter = Start, TFGH = D-pad. Gamepads work through SDL; an
-official GameCube adapter is read directly instead (see the status table).
-
-| | Keyboard | Gamepad |
-|---|---|---|
-| Navigate | Up/Down, Tab | D-pad or left stick |
-| Adjust | Left/Right | D-pad left/right |
-| Change tab | Left/Right on the tab strip | L/R shoulders |
-| Select | Enter | A |
-| Close overlay | Escape, F1 | B, Start, Back |
-
-## Settings overlay
-
-**F1**, or Back/Select on a gamepad, opens the overlay. The game pauses while it
-is open.
-
-- Display: fullscreen/windowed and VSync apply immediately. `MELEE_VSYNC`
-  overrides the saved preference.
-- Internal resolution and UI scale are sliders. UI scale covers 75% to 150%.
-- Post-processing picks the presentation shader and applies immediately.
-- Anti-aliasing and anisotropic filtering apply on the next launch. MSAA offers
-  only off and 4x because WebGPU guarantees sample counts 1 and 4.
-- Audio: master volume, mute, FPS counter, all immediate.
-- Controls remaps a gamepad. Pick the port, select a GameCube button, then press
-  the physical button. Escape cancels, Restore resets the port. Back cannot be
-  bound since it opens the menu. Sticks and triggers remap the same way, and a
-  direction accepts either a stick axis or a button.
-
-Melee's own menu sounds play in the overlay. Bindings are stored in aurora's
-per-device `.controller` files; everything else shares `launcher.cfg`.
-
-## Environment variables
-
-| Variable | Effect |
-|---|---|
-| `MELEE_BACKEND=<name>` | Pin the graphics backend (`vulkan`, `d3d12`, `d3d11`, `metal`, ...) instead of the platform's preferred order; an unknown name lists the valid ones. |
-| `MELEE_VSYNC=0\|1` | Override the saved VSync preference. |
-| `MELEE_LOG_FILE=<path>` | Write the log to a file (default `melee-pc.log` beside `melee.exe` on Windows; empty disables). |
-| `MELEE_WINDOW_TITLE=<t>` | Window title. |
-| `MELEE_FILES_DIR=<dir>` | Loose-file overlay: files here (or in `./files/`) replace the disc's. |
-| `MELEE_CACHE_MAX_MB=<n>` | In-memory archive cache budget (default picked from installed RAM). |
-| `MELEE_PREWARM=0` | Skip the background asset pre-warm after boot. |
-| `MELEE_FAST_FADES=1` | Clamp scene fade delays. |
-| `MELEE_PIPELINE_JOBS=<n>` | Background shader-pipeline compile threads (default half the hardware threads, 1..8). |
-| `MELEE_UCF=1` | Universal Controller Fix (UCF 0.8x dashback and shield-drop rules); overrides the `ucf` launcher.cfg pref. |
-| `MELEE_GC_ADAPTER=0` | Hand the GameCube adapter (WUP-028) back to SDL's gamepad driver instead of reading it raw. |
-| `MELEE_SLP_DIR=<dir>` | Record every VS match, offline or netplay, as a Slippi replay `<dir>/Game_YYYYMMDDTHHMMSS.slp` (replay format 3.18.0) that Slippi Launcher, slippi-js stats, Clippi and overlays read. Only frames no rollback can change are written, so both netplay peers' files hold the same frames. Off by default. |
-| `MELEE_AGENT_SOCKET=<path>` or `tcp:127.0.0.1:<port>` | Agent bridge: listen on this AF_UNIX socket (or TCP port on the loopback interface only; Windows accepts only the TCP form) so an external agent (e.g. [Phillip](#ai-melee-play-against-phillip)) can watch the game and drive one port. Off by default; unset, nothing changes. |
-| `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
-| `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
-| `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
-| `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
-| `MELEE_AGENT_CSS_CHARS=<ckinds>` | With the agent bridge on: comma-separated character kinds (CKind, e.g. `2,20` for Fox and Falco). Opening the agent port's door from closed to HMN on the character select places its token on a random unlocked one of them. `play.py` sets it to the characters an AI will play, Sheik aside, unless run with `--p2-pick off`. |
-| `--no-card` | Boot without a memory card. |
-| `--dvd <image>` | Explicit form of the positional disc argument. |
-| `--version` | Print the build version and exit. |
-
-Diagnostic knobs (`MELEE_DEBUG`, `MELEE_FPS`, `MELEE_HEAP_CHECK`, the
-`AURORA_*` draw filters, ...) are listed in
-[docs/debugging.md](docs/debugging.md#diagnostic-environment-variables).
-
-## Community
-
-- [Discord](https://discord.gg/aurt34svq) for questions and testing.
-- [Project site](https://999sian.github.io/melee-pc/) for setup, FAQ and
-  known issues.
-- [Bug report form](https://github.com/999sian/melee-pc/issues/new?template=bug_report.yml);
-  attach the log (`melee-pc.log` on Windows, see
-  [docs/debugging.md](docs/debugging.md#log-files)).
-
-## AI-Melee: play against Phillip
-
-AI-Melee is this fork of melee-pc. It adds an agent bridge so you can play an
-offline match against Phillip, the Melee AI, in two generations:
-
-- **The newer Phillip ([slippi-ai](https://github.com/vladfi1/slippi-ai), MIT), used by default.** It's the bot you meet on Slippi: trained on human Slippi replays, then refined by self-play. It plays with 18+ frames of built-in reaction delay, like a human online. The game streams it the same Slippi replay events a Slippi console sends, and libmelee and slippi-ai read them with their own code.
-- **The original [Phillip](https://github.com/vladfi1/phillip) (2017, pure reinforcement learning), as the fallback.** Its trained networks run in numpy. It covers characters the slippi-ai model doesn't, or everyone with `--brain classic`.
-- **Inference only.** The game talks to the agent over a local socket (a Unix socket on Linux, loopback TCP on Windows) instead of a patched Dolphin.
-- **Off by default.** The bridge is off unless `MELEE_AGENT_SOCKET` is set. It lives in `src/pc/agent_*` and hooks the existing per-tick `pc_net_sync` / `pc_slp_tick_end` calls, so no game code changes.
-
-**On Windows?** Skip to [Windows 10](#windows-10): a download, no build.
-
-**Linux:** see [Install on Linux (CachyOS)](#install-on-linux-cachyos).
-
-**Assumptions.** The Linux instructions assume:
-- **Linux.** Written for CachyOS/Arch, so package names are pacman's.
-- **The [fish](https://fishshell.com/) shell (3.1 or newer), run in a terminal such as [Alacritty](https://alacritty.org/).** Every command below is fish syntax; the two places where bash differs are noted.
-- **Your own disc.** A Melee NTSC-U 1.02 (GALE01) image.
-
-### Install on Linux (CachyOS)
-
-Six steps. The first run then sets up both AIs by itself, which takes a while once. Expect about 4 GB of disk for the build, both AIs and their Python environments.
-
-1. **System packages** (once). Also install your GPU's Vulkan driver: `nvidia-utils` (NVIDIA), `vulkan-radeon` (AMD) or `vulkan-intel`. Most of these are already on a desktop install; `--needed` skips them.
-
-   ```fish
-   sudo pacman -S --needed base-devel git cmake ninja python python-numpy uv \
+   ```sh
+   sudo pacman -S --needed base-devel git github-cli cmake ninja python python-numpy uv tk \
        vulkan-icd-loader openssl curl libx11 libxext libxrandr libxcursor libxi \
        libxfixes libxss libxkbcommon libxtst wayland wayland-protocols libdecor \
-       alsa-lib libpulse dbus systemd-libs tk
+       alsa-lib libpulse dbus systemd-libs
    ```
 
-   You don't need to install another Python version: [uv](https://docs.astral.sh/uv/) fetches the ones the AIs need (3.12 for slippi-ai, 3.11 for converting the 2017 agents) into their own environments.
+2. **Download AI-Melee and Phillip** side by side. `gh auth login` signs you in to GitHub once, which the private repository needs.
 
-2. **AI-Melee and Phillip, side by side.** `play.py` looks for Phillip's 2017 agents in `../phillip`.
-
-   ```fish
-   mkdir -p ~/src; and cd ~/src
-   git clone -b claude/eager-planck-jptjp9 https://github.com/zurgace/aimelee.git ai-melee
+   ```sh
+   gh auth login
+   mkdir -p ~/src && cd ~/src
+   gh repo clone zurgace/aimelee ai-melee
    git clone https://github.com/vladfi1/phillip.git
    ```
 
-   Already have a melee-pc clone? Add AI-Melee as a remote instead:
-   `git remote add aimelee https://github.com/zurgace/aimelee.git; and git fetch aimelee; and git switch -c ai-melee aimelee/claude/eager-planck-jptjp9`
+3. **Build the game** (a few minutes; the first build downloads some libraries).
 
-3. **Build.** The first configure downloads Dawn and a few libraries.
-
-   ```fish
+   ```sh
    cd ~/src/ai-melee
-   cmake -B build -G Ninja; and ninja -C build
+   cmake -B build -G Ninja && ninja -C build
    ```
 
-4. **Point it at your disc.** A universal variable is remembered by every fish session, and every AI-Melee tool reads `MELEE_DISC`, so you can drop `--iso`. In bash, put `export MELEE_DISC=...` in `~/.bashrc` instead.
+4. **Add the AI-Melee shortcut.** This puts AI-Melee in your app menu (under Games) and on your desktop.
 
-   ```fish
-   set -Ux MELEE_DISC ~/Games/Melee/GALE01.iso
-   ```
-
-5. **The AI-Melee shortcut.** This adds AI-Melee to your app menu (under Games) and puts an icon on your desktop. Clicking it opens the AI-Melee launcher, with no terminal.
-
-   ```fish
+   ```sh
    python3 ~/src/ai-melee/tools/agent/launcher.py --install
    ```
 
-   `--uninstall` removes both again. The launcher needs Tk (`tk`, in step 1).
+5. **First run.** Click **AI-Melee**, choose your disc with **Change...**, and press **Play**. The first time, before the game opens, it sets up the AIs. The launcher shows each step:
+   - it converts the 2017 agents (about 250 MB of downloads, a few minutes);
+   - it sets up the newer Phillip (about 2.5 GB, the longest step) and downloads its model;
+   - it times the model on your computer once.
 
-   **For the terminal instead,** an `ai-melee` command: afterwards `ai-melee`, `ai-melee --quick` or `ai-melee --brain classic` work from any directory.
+   Later starts take seconds.
 
-   ```fish
-   function ai-melee --description 'Play Melee against Phillip (AI-Melee)'
-       python3 ~/src/ai-melee/tools/agent/play.py $argv
-   end
-   funcsave ai-melee
-   ```
+**Updating:**
 
-6. **First run.** Click the AI-Melee icon and press **Play** (or run `ai-melee` in a terminal). It asks for your disc once if it doesn't know it yet. The first time, before the game opens, it:
-   - converts the 2017 agents from Phillip's checkpoints with TensorFlow 2.13 (about 250 MB of downloads, a few minutes);
-   - sets up the newer Phillip: slippi-ai's own Python 3.12 environment in `tools/agent/slippi-env` (about 2.5 GB, the longest step), then its medium-v2 model from Dropbox;
-   - times one model step on your machine and prints which characters it plays.
-
-   The launcher shows each step as it goes; **Show log** has the details. Every later start takes seconds. Wait for **AI ready** (`slippi: model ready` in the terminal) before starting a match.
-
-   To convert the 2017 agents by hand instead, keep the quotes around `tensorflow-cpu==2.13.*`; fish reads an unquoted `*` as a file glob and stops with "No matches for wildcard":
-
-   ```fish
-   uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
-       tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF --agent delay0/FoxFD
-   ```
-
-**Updating.** `cd ~/src/ai-melee; and git pull; and ninja -C build`. A change to `tools/agent/slippi-requirements.txt` makes the next start rebuild slippi-ai's environment by itself.
-
-### Play
-
-Click **AI-Melee** in your app menu or on your desktop. The launcher window opens:
-
-- **AI.**
-  - **Best available** (default): the newer Phillip where its model plays the character, the 2017 agents for the rest.
-  - **Newer Phillip only** or **2017 agents only**: the same as `--brain slippi` / `--brain classic`.
-- **Game.**
-  - **Opening P2's door gives it a random character the AI plays** (default on; `--p2-pick`).
-  - **Random stage picks tournament stages only** (default on; `--random-stages`).
-- **Disc.** **Change...** picks your disc image.
-- **Play.** Starts the game. The launcher remembers your choices (in `tools/agent/settings.json`).
-
-While the game runs, the launcher shows what's happening: first-run setup, **AI ready**, and who plays P2 each match. **Show log** shows the full log, which is also saved to `tools/agent/ai-melee.log`. Close the game window (or press **Quit game**) and the launcher comes back, ready for another game. If something goes wrong, it says what in a message box.
-
-From a terminal, with every option (`--help` lists them):
-
-```fish
-ai-melee          # or, from ~/src/ai-melee: python3 tools/agent/play.py
+```sh
+cd ~/src/ai-melee && git pull && ninja -C build
 ```
 
-The game opens its own window, and the terminal keeps the agent's log: match start, matchup warnings, and latency and late-input counts when a match ends. Click the game window before you play: the keyboard only reaches the game while its window has focus.
+**Removing the shortcut:** `python3 ~/src/ai-melee/tools/agent/launcher.py --uninstall`.
 
-- **Which Phillip plays.** On first use `ai-melee` sets up the newer Phillip:
-  - its own Python 3.12 environment (`tools/agent/slippi-env`, about 2.5 GB, a while to download);
-  - the "medium-v2" model from slippi-ai's Dropbox.
+**Without the launcher:** `python3 ~/src/ai-melee/tools/agent/play.py` does the same from a terminal and prints the AI's log there. `play.py --help` lists every option.
 
-  It then times one model step on your machine and prints the characters the model plays. medium-v2 plays 12: Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi. For any other character, the 2017 agents below play P2 where one exists (Ganondorf and Roy as stand-ins); otherwise P2 stands still.
-  - `--brain classic` always uses the 2017 agents; `--brain slippi` only slippi-ai.
-  - `--slippi-model <file>` uses another model from [slippi-ai's released models](https://www.dropbox.com/scl/fo/mg916t9exid4stqmx2bjf/AD2oysY7SbTa6N0u7j75-SA?rlkey=baqxnfxg2uytvcz62w9o8mwzt&st=eil5kcql&dl=0).
-  - If the download fails, save medium-v2 as `tools/agent/weights/slippi/medium-v2` yourself.
-- **Set up the match.** With the 2017 agents, P2 is played as whichever character you give it. On Final Destination a character gets its Final Destination agent, on any other stage its Battlefield agent, and a character with only one of the two uses it everywhere:
+## Install on Windows 10/11
 
-  | P2's character | Final Destination agent | Battlefield agent |
-  |---|---|---|
-  | Captain Falcon | (uses the Battlefield one) | FalconFalconBF, trained vs Falcon |
-  | Fox, Marth, Peach, Sheik | their own agent | (uses the FD one) |
-  | Falco | delay0/FalcoFD | delay18/FalcoBF, with the Google Drive agents (else FalcoFD) |
-  | Ganondorf, Roy | Falcon's or Marth's agent stands in (clones) | same |
-  | Jigglypuff | delay18/PuffFD, with the Google Drive agents | (uses the FD one) |
-  | anyone else | none: P2 stands still, so set P2 to CPU instead | |
+For 64-bit Windows 10 or 11 with an up-to-date graphics driver. Nothing is compiled: you download a ready-made build. Plan on about 4 GB of disk space and an internet connection for the first run.
 
-  - Take P1 (keyboard, or a gamepad on port 1) and pick your character.
-  - With P1's cursor, click P2's door once. P2 opens as HMN with a random character an AI plays, and the terminal names it. With medium-v2 and the repo's agents that is one of Captain Falcon, Falco, Fox, Ganondorf, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Roy, Samus and Yoshi.
-    - Another roll: click the door three more times (CPU, closed, HMN).
-    - A character of your choice: move your cursor onto P2's token, press A to pick it up, and press A again on another character, as you would with a CPU's token. For Sheik, pick Zelda and hold A as the match loads.
-    - `--p2-pick off` opens the door with no character, as the game does.
-  - Choose a stage: Final Destination for every agent except Falcon's (Battlefield). The terminal names the agent at each match start.
-- **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
-- **After the match.** P2 counts as ready on the results screen, so press Start once and you're back at the character select, with P2 still seated.
-- **Random stage.** Pressing Start on the stage select picks one of Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. A stage still locked on your save (Dream Land N64 is an unlockable) is left out, and the terminal says so. `--random-stages all` uses the game's own Options → Random Stage Switch list instead. AI-Melee only sets the list while the stage select is open and puts yours back after, so your memory card keeps your own list.
-- **Quick start.** `--quick` skips the menus and boots straight into a Falcon vs Falcon match on Battlefield, or into `--agent`'s matchup.
-- **More agents.** The `delay18` agents are not in Phillip's repo; they're in the "full set of trained agents" zip linked from [Phillip's README](https://github.com/vladfi1/phillip#readme) (Google Drive). Phillip's author calls `delay18/FalcoBF` the best human-like agent. Put each one's files (`params`, `snapshot*`) in `../phillip/agents/delay18/<name>/`, and the next `ai-melee` converts and uses them. They react 18 frames late (12 for Puff), by design.
-- **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
-- **One agent for everyone.** `--agent <name>` plays that one agent whatever P2 picks, as before. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
-- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help` (`--delay`, `--frame-lag` and `--record` apply to the 2017 agents).
-- **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
-  - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock MELEE_PREWARM=0 build/melee $MELEE_DISC` starts the game with the bridge on. `MELEE_PREWARM=0`, which `play.py` sets for you, avoids a boot-time crash in melee-pc's background disc prewarm ("HSD_ArchiveParse: byte-order mismatch"; see NOTES).
-  - `python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz` then plays P2, and `python3 tools/agent/dump_state.py` prints what the bridge exports. Run only one of the two: the bridge serves one client at a time.
-- **Performance.**
-  - slippi-ai runs on the CPU on a worker thread. Its reaction delay hides the compute, so a reply normally takes well under a millisecond. The first-run timing, kept in `tools/agent/weights/slippi/*.probe.txt`, shows your machine's numbers.
-  - A 2017 agent's network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
-  - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
-  - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
-- **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `inject_script.py` drives the agent port without any AI.
+1. **Install Python 3.12.** Download the "Windows installer (64-bit)" from [python.org](https://www.python.org/downloads/windows/). On the installer's first screen, tick **Add python.exe to PATH**, then click **Install Now**.
 
-### Windows 10
-
-For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You download a ready-made build and nothing is compiled. Everything below is typed in PowerShell or done by clicking.
-
-**What you need.**
-- **Windows 10 or 11, 64-bit,** with an up-to-date graphics driver (NVIDIA, AMD or Intel). The game draws with Direct3D 12; see [Requirements](#requirements).
-- **Your Melee disc image:** NTSC-U 1.02 (GALE01), usually a `.iso` file.
-- **About 4 GB of free disk space and an internet connection** for the first run. Later runs work offline.
-
-**What gets installed.**
-- **Python 3.12**, which runs the AI.
-- **Two Python packages:**
-  - `numpy` runs Phillip's network.
-  - `uv` sets up the rest once, in environments it downloads and manages itself:
-    - the newer Phillip (slippi-ai) with its own Python 3.12, TensorFlow and libmelee, about 2.5 GB;
-    - a temporary Python 3.11 with TensorFlow 2.13, which converts the 2017 agents.
-- **The AI-Melee download** (the game plus the AI scripts) and **Phillip's source**, which holds the trained agents.
-
-1. **Install Python 3.12.** Download the "Windows installer (64-bit)" from [python.org/downloads](https://www.python.org/downloads/windows/). In the installer's first screen tick **Add python.exe to PATH**, then click **Install Now**. Alternatively, in PowerShell:
-
-   ```powershell
-   winget install Python.Python.3.12
-   ```
-
-2. **Install the Python packages.** Open PowerShell (Start menu, type `powershell`, Enter) and run:
+2. **Install two Python packages.** Open PowerShell (Start menu, type `powershell`, press Enter) and run:
 
    ```powershell
    py -m pip install numpy uv
    ```
 
-   pip may warn that a Scripts folder "is not on PATH". You can ignore that: AI-Melee finds uv either way.
+   If pip warns that a Scripts folder "is not on PATH", you can ignore it.
 
 3. **Download AI-Melee.**
-   - Open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release.
-   - Right-click the zip, choose **Extract All...**, and extract it to a folder you own, for example `C:\Games`.
-   - You get a folder `AI-Melee` containing `melee.exe`, `Play AI-Melee.bat` and an `ai-melee` folder. Don't put it under `C:\Program Files`: the AI saves files next to itself.
+   - Signed in to GitHub, open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release. If the owner sent you a different link instead, use that.
+   - Right-click the zip, choose **Extract All...**, and extract it somewhere you own, for example `C:\Games`. Not under `C:\Program Files`: the AI saves files next to itself.
+   - You get a folder `AI-Melee` with `melee.exe`, `Play AI-Melee.bat` and an `ai-melee` folder.
 
 4. **Download Phillip.**
    - On [github.com/vladfi1/phillip](https://github.com/vladfi1/phillip), click the green **Code** button, then **Download ZIP**.
-   - Extract that zip into the `AI-Melee` folder, so it contains a `phillip-master` folder. `phillip-master\phillip-master` from Extract All is fine too.
+   - Extract it into the `AI-Melee` folder, so that folder now also contains `phillip-master`.
 
-5. **Play.** Double-click `Play AI-Melee.bat` in the `AI-Melee` folder.
-   - **First run only:** a window asks for your disc image (it may open behind the console), and the choice is remembered.
-   - **Then a one-time setup:**
-     - it converts the 2017 agents (about 250 MB of downloads);
-     - it sets up slippi-ai (about 2.5 GB) and downloads its medium-v2 model;
-     - it times the model once.
+5. **Play.** Double-click `Play AI-Melee.bat`.
+   - **First run only:**
+     - a window asks for your disc image (it may open behind the console);
+     - then a one-time setup: the 2017 agents are converted, the newer Phillip is set up (about 2.5 GB), and the model is timed once.
 
-     This takes a while; later starts take seconds. Wait for `slippi: model ready` in the console.
-   - **Then the game opens.** The console window stays open with the AI's log.
+     Wait for `slippi: model ready` in the console.
+   - **Later starts** take seconds.
+   - **The console window** stays open with the AI's log. Close the game window to stop.
 
-6. **In the game.**
-   - Click the game window so it gets the keyboard.
-   - Set up the match as in [Play](#play). You are P1. Click P2's door once: P2 opens as HMN with a random character an AI plays. To choose it yourself, pick up P2's token with your cursor (A) and drop it on another character.
-     - The newer Phillip plays Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi.
-     - The 2017 agents also cover Ganondorf and Roy.
-     - Anyone else stands still.
-   - Close the game window to stop.
+**Updating:** download the newest zip and extract it over your `AI-Melee` folder. Your settings and the converted agents are kept.
 
-**Options.** `Play AI-Melee.bat` passes its arguments to `play.py`. In PowerShell, from the `AI-Melee` folder:
+## Playing
 
-```powershell
-& '.\Play AI-Melee.bat' --quick                # skip the menus
-& '.\Play AI-Melee.bat' --agent delay0/FoxFD   # another agent
-py ai-melee\play.py --help                     # every option
-py ai-melee\list_agents.py --phillip phillip-master   # the agents and their matchups
-```
+**Controls.** The keyboard plays P1:
 
-**Troubleshooting.**
-- **"Windows protected your PC"** (SmartScreen) when starting `melee.exe`: the build is not code-signed. Click **More info**, then **Run anyway**.
-- **"Python was not found"** or **`py` is not recognized**: re-run the Python installer, choose **Modify**, and make sure **py launcher** and **Add Python to environment variables** are ticked.
-- **"the agent needs numpy"** or **"that needs uv"**: run step 2 again.
-- **"cannot find Phillip's agent"**: the message lists where it looked. Check that `phillip-master\agents` exists inside `AI-Melee`, or pass `--phillip <folder>`.
-- **A Windows Firewall prompt for melee.exe**: the AI connection only listens on 127.0.0.1 (this computer only), which the firewall doesn't block, so either answer works for AI-Melee. Netplay needs it allowed.
-- **The game doesn't start or shows a black window**: update your graphics driver, then double-click `RUN-AND-LOG.bat` and read `melee-pc.log`. The [project site](https://999sian.github.io/melee-pc/) FAQ covers first-run problems.
-- **Wrong disc remembered**: delete `ai-melee\settings.json`, or pass `--iso <path>`.
-
-**Status on Windows.**
-- **The download.** The Windows build is made by this fork's [release workflow](.github/workflows/ai-melee-windows.yml). If the Releases page lists no `AI-Melee-Windows-x86_64.zip` yet, none has been published.
-- **Testing.** It has not been played on a real Windows machine; the bridge's Windows networking is tested under Wine.
-- **slippi-ai.** It hasn't been tested on Windows. Its pinned packages do publish Windows builds, but if its setup fails, AI-Melee says so and the 2017 agents play instead. `--brain classic` skips it altogether.
-
-Please [open an issue](https://github.com/zurgace/aimelee/issues) with the console output if something goes wrong.
-
-## Netplay (LAN and direct IP, prototype)
-
-Two copies of the game play a rollback match over UDP (`src/pc/net.c`;
-design and current state in [docs/netcode-plan.md](docs/netcode-plan.md)).
-Both must run the same build **and the same game image**, with no memory card
-(`--no-card`). The LAN lobby announces a 32-bit id of the disc it booted
-(region, revision, file-table shape and the DOL, so a code mod counts), and a
-peer on a different image is listed as incompatible before a single game
-packet is exchanged — same as a different build version. Internet friend-code
-pairing also binds build and disc identity; the legacy direct-IP environment
-path retains its older protocol-version-only check.
-
-In the menus: VS Mode → ONLINE → LAN PLAY finds other
-copies on the local network by mDNS and the first Start elects a host
-(lowest install id wins a tie). DIRECT CONNECT opens an in-game hub where
-either player can call a friend's `NAME#XXXXXXXX` code, enter its eight-character
-suffix, or choose a clipboard code or recent opponent. UNRANKED searches for
-an opponent; RANKED runs a rated best-of-three set. PROFILE shows your code
-and locally verified rating. Internet discovery may take about 30 seconds to
-bootstrap and some NATs cannot support a direct peer connection. Legacy
-`MELEE_LAN_DIRECT=ip:port` remains available for direct-IP sessions. The game port is UDP 41000 by default and discovery uses UDP
-5353 multicast; allow both through the firewall (Windows asks on first
-launch). The install id used for the election is `install_id` in
-`launcher.cfg`.
-
-If the link drops mid-match, the session no longer dies with it: after 7 s of
-silence it enters a reconnect phase and resumes where it left off if the peer
-comes back within 15 s and neither side's 64-frame input ring has been
-outrun. The lobby shows "reconnecting"; a failure that cannot be resumed says
-"Could not resume" instead of "Connection timed out".
-
-A peer that is *loading* is not a peer that is gone. Silence is measured from
-the last datagram the peer sent, not from how long this side has been
-waiting: a machine whose game thread is inside a stage load, a character
-load or a first-time shader compile keeps its sender running, so the link
-carries it however long it takes and the transition screen simply waits.
-Before that distinction existed, any load over 7 s froze both games on "NOW
-LOADING" and one over ~22 s ended the session outright, which is what a
-phone's first match cost.
-
-**What works where.** Only Linux x86-64 has played real matches, but a Linux
-recording now replays bit-identical on Windows, so the two builds compute the
-same game.
-
-| Platform | Netplay | Rollback | Notes |
-|---|---|---|---|
-| Linux x86-64 | yes | yes | the configuration everything below was measured on; longest run 36 minutes and 126k frames of match |
-| Windows x86-64 / ARM64 | implemented | enabled | PE ranges cover both supported toolchains. x86-64 restore runs under Wine; ARM64 compiler-bridge and linked-range checks pass. Full Windows rollback gameplay remains unverified |
-| macOS / iOS | builds; online gameplay unverified | enabled | Mach-O simulation sections support Intel/Apple Silicon macOS and ARM64 iOS. Cross-link/bridge checks pass; native restore is a macOS CI check. Device gameplay remains unverified |
-| Android | runs on a device; found and joined a PC over LAN | enabled; gameplay unverified | Measured on a Pixel 8 Pro against Linux x86-64: mDNS discovery, election, handshake and 1800+ frames of synced menus at 10-16 ms ping and 0 % loss, both peers entering the CSS on the same frame. Full matches have since been played to the end phone-to-PC over LAN and over mobile data. New ARM64/x86-64 NDK-linked restore fixtures pass (ARM64 under QEMU), but device rollback gameplay is still unproven. The lobby holds the Wi-Fi multicast lock while it is open |
-
-All supported builds require simulation snapshot sections and verify their
-boundaries after linking. Audio/worker state remains excluded. Menus and scene
-loading still synchronize without prediction; matches use rollback by default.
-Allocation failure and the explicit debugging switch can still fall back to
-lockstep. Unsupported compilers are rejected rather than producing a silently
-lockstep-only platform build.
-
-| Variable | Effect |
+| Controller | Keyboard |
 |---|---|
-| `MELEE_NET=<host:port>` | Connect to that peer at boot, no lobby (`MELEE_NET_PLAYER` on both sides). The session runs the same RULES/READY handshake a lobby one does, hosted by `MELEE_NET_PLAYER=0`, so the seed, rules and unlock state are agreed rather than assumed and a disagreement refuses the session instead of desyncing later. `MELEE_SEED` is optional, and only the host's is used. |
-| `MELEE_NET_PORT=<n>` | Local UDP game port (default 41000). Two copies on one machine need different ports. |
-| `MELEE_NET_PLAYER=0\|1` | Controller port the local player drives with `MELEE_NET`: 0 = P1/host, 1 = P2. |
-| `MELEE_NET_DELAY=<n>\|auto` | Input delay in frames (default `auto`: 1–4 from ping and jitter, at least 2 in a fight (1 on a LAN under 10 ms ping and 2 ms jitter), re-evaluated every 600 frames, changed only between matches). |
-| `MELEE_NET_RECONNECT_MS=<ms>` | How long a broken link may take to resume (default 15000). `0` disables the reconnect phase: the session drops 7 s after the peer goes quiet, as it used to. Anything negative or unparseable falls back to the default. |
-| `MELEE_LAN_TEST=1\|host` | LAN lobby without the menu; `host` presses Start once the title is up. Both set to `host` exercises a simultaneous Start. |
-| `MELEE_LAN_DIRECT=<ip:port>` | Direct connect without the menu, at frame 300; set on both sides with the other's address. The lower `ip:port` hosts. |
-| `MELEE_NET_STALL_TEST=<frame>[:<ms>]` | Park the guest's game thread for `ms` at that frame (default 10000), standing in for a load the netcode cannot shorten. The sender keeps running, so this is the "peer is loading, not gone" case; only player 1 does it, so one exported value stalls exactly one side. |
-| `MELEE_NET_RECORD=<file>` | Write the seed, then per frame the four pad states simulated and a state checksum. |
-| `MELEE_NET_REPLAY=<file>` | Feed a recording back in; reports the first frame whose checksum differs (`net: REPLAY DIVERGED`). Solo only. |
-| `MELEE_NET_STATE_LOG=<file>` | Write two lines per frame to that file: the readable state line, and the raw float bits of exactly the fields the checksum covers. Only meaningful with `MELEE_NET_RECORD`/`MELEE_NET_REPLAY`; this is how two platforms' runs are diffed down to the field that differs. |
-| `MELEE_INPUT_TRACE=1` | One `pad: ` line per change of port 0's virtual pad, with the focus and fifo state that produced it. |
-| `MELEE_NET_SYNCTEST=1` | Run every tick twice from a restored snapshot and compare state hashes; sound is off. Proves the snapshot covers everything a tick reads. |
-| `MELEE_NET_ROLLBACK=off` | Play the session in lockstep — no prediction, no snapshots. A bisecting tool, not a mode. |
-| `MELEE_NET_SYNC=off\|legacy` | Measure the clock offset but never act on it, or restore the pre-batch skip behaviour. |
-| `MELEE_NET_PAD_QTYPE=0` | Restore the raw pad queue's shifting overflow branch; the regression test for the input-slip fix. |
-| `MELEE_NET_AUDIO_JOURNAL=off`, `MELEE_NET_AUDIO_DEAF=off` | Restore the two audio behaviours netplay overrides for determinism; each is the regression test for its own defect. |
-| `MELEE_NET_RESIM_AUDIT=<k>` | Every 120 frames, roll back k frames and re-run them from unchanged inputs, comparing every snapshot region and checksum. The instrument that proves re-simulation is faithful. |
-| `MELEE_NET_EXIT_AFTER_FRAMES=<n>` | Disconnect (BYE) and exit at that frame, logging `net: test done at frame n`. |
-| `MELEE_NET_SIM_OOM_FRAME=<n>` | Fail the first snapshot taken at or after that frame, the way a failed allocation would, to exercise the lockstep fallback. |
-| `MELEE_NET_SIM_LOSS=<pct>` | Drop that share of outgoing packets. |
-| `MELEE_NET_SIM_DELAY_MS=<ms>` | Hold every outgoing packet that long. |
-| `MELEE_NET_SIM_DELAY_RX_MS=<ms>` | Hold every incoming packet that long (asymmetric links). |
-| `MELEE_NET_SIM_JITTER_MS=<ms>` | Uniform ±ms on the outgoing delay; reorders when larger than the delay. |
-| `MELEE_NET_SIM_REORDER=<pct>` | Hold that share of packets behind the next one. |
-| `MELEE_NET_SIM_DUP=<pct>` | Send that share of packets twice. |
-| `MELEE_NET_SIM_BURST=<n>` | Every 5 s drop n consecutive outgoing packets. |
+| stick | arrow keys or WASD |
+| C-stick | IJKL |
+| A, B, X, Y | X, Z, C, V |
+| L, R, Z | Q, E, Tab |
+| Start | Enter |
 
-The link simulator's PRNG is seeded from `MELEE_NET_PORT`, so a run repeats.
-Every 600 frames the log prints rollbacks, stalls, ping, jitter, loss and
-snapshot cost; `net: DESYNC`, `net: cannot roll back` and `net: peer silent`
-are the lines that mean something went wrong. Two copies on one machine also
-need distinct `MELEE_CACHE_DIR` (pipeline cache) and `MELEE_KEY_FIFO` if you
-drive them with key injection. Keyboard keys only reach the game while the
-window has keyboard focus; `MELEE_KEY_FIFO` keys are deliberately exempt, so
-harnesses can still drive menus in background windows.
+A gamepad on port 1 works too, and so does an official GameCube adapter. Click the game window first: the keyboard only reaches the game while its window has focus.
 
-A run that never leaves a menu proves nothing: outside a fight the state
-checksum covers only the four pads and the RNG seed, so two title screens can
-neither desync nor roll back. The harnesses below check that a match really
-started before they report anything.
+**Setting up a match.**
+1. Go to VS Mode and pick your character with P1.
+2. **Click P2's door once** with your cursor. P2 opens as HMN with a random character the AI plays, and the AI takes over that port.
+   - **Another random character:** click the door three more times (CPU, closed, HMN).
+   - **A character of your choice:** put your cursor on P2's token, press A to pick it up, and press A on another character.
+   - **Sheik:** pick Zelda for P2 and hold A while the match loads.
+3. Pick a stage, or press Start for a random one. Random picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams.
+4. The AI plays from GO! until the match ends. On the results screen, press Start once to go back to the character select, with P2 still seated.
 
-| Tool | What it does |
-|---|---|
-| `tools/net_test.py` | Two instances on this machine through a real match, asserting on both logs (both reach `net: test done`, exit 0, no DESYNC, no `peer silent`, no lost rollback). Direct mode boots straight into Link vs Mario via `MELEE_NET` + `MELEE_DEBUG_VS=1`; `--lan` walks the real menus into the LAN lobby and needs the shared LAN free; `--scenes` walks CSS and SSS too; `--oom FRAME` and `--disconnect` cover the snapshot-failure and hard-drop paths. |
-| `tools/net_acceptance.py` | The same across a link matrix (loss, delay, jitter, reorder, dup, burst, asymmetric rx) into one markdown table. |
-| `tools/net_lan_test.py` | Lobby paths a match never reaches: simultaneous Start, direct connect, a peer killed mid-lobby, the host killed while the guest connects. |
-| `tools/net_determinism.py` | Records one run and replays it on every platform reachable from this machine, reporting the first frame that differs. Android and macOS report SKIPPED rather than passing. |
-| `tools/net_fuzz.py`, `tools/net_lan_fuzz.py` | Malformed game datagrams and malformed mDNS records against a running instance. Both keep their crafted multicast on this host (`IP_MULTICAST_TTL 0`). |
+**Which AI plays P2.**
+- **The newer Phillip** plays its 12 characters, on any stage.
+- **The 2017 agents** play the rest, with their training stage in mind:
+  - Fox, Falco, Marth, Peach and Sheik learned on Final Destination.
+  - Captain Falcon learned on Battlefield.
+  - Ganondorf and Roy borrow Falcon's and Marth's agents.
+- **Anyone else** stands still, so pick someone else for P2 (or set P2 to CPU for the game's own AI).
 
-```sh
-python3 tools/net_test.py                                  # 2 min, clean link
-python3 tools/net_test.py --loss 5 --delay 30 --jitter --reorder
-python3 tools/net_test.py --lan --minutes 1
-python3 tools/net_test.py --fuzz                           # tools/net_fuzz.py hammers A's port
-python3 tools/net_determinism.py --only linux,linux-flip   # ~2 min, no Proton
-```
+**Launcher options (Linux).**
+- **AI:**
+  - **Best available** (default): the newer Phillip where it can, the 2017 agents for the rest;
+  - **Newer Phillip only**;
+  - **2017 agents only**.
+- **Random character for P2**, and **tournament-only random stages**. Both are on by default.
 
-`--exe build/melee`, `--disc ../melee.ciso`, `--port 42050` (B uses +1) and
-`--work /tmp/net_test` (logs in `a.log`/`b.log`) are the defaults.
+The launcher remembers your choices. While you play, it shows **AI ready**, and who plays P2 each match. **Show log** has the details, which are also saved in `tools/agent/ai-melee.log`.
 
-## Porting notes
+On Windows, `Play AI-Melee.bat` passes options to `play.py`, for example `& '.\Play AI-Melee.bat' --brain classic` in PowerShell.
 
-## Documentation
+## Troubleshooting
 
-- [docs/building.md](docs/building.md) - toolchain, packaging, cross-compiling
-  for Windows, Android, iOS and macOS.
-- [docs/testing.md](docs/testing.md) - unit tests, drive/capture tools,
-  port-bug harnesses.
-- [docs/debugging.md](docs/debugging.md) - log files, crash handler, gdb, heap
-  check, diagnostic environment variables.
-- [docs/porting-notes.md](docs/porting-notes.md) - the big-endian data model,
-  LP64 bug classes, PAL support.
-- [docs/architecture.md](docs/architecture.md) - layers, threads, memory map,
-  aurora.
-- [CODING_STYLE.md](CODING_STYLE.md) - coding standards and verification
-  procedure; run `python3 tools/check_style.py` before opening pull requests.
-- [ROADMAP.md](ROADMAP.md) - scope and sequencing of the remaining phases. It
-  carries no status; the [table above](#status) does.
+- **P2 doesn't move.** Wait for **AI ready** (`slippi: model ready` on Windows) before starting a match. If P2's character is one the AI doesn't play, the log says so.
+- **Wrong disc remembered.**
+  - Linux: press **Change...** in the launcher.
+  - Windows: delete `ai-melee\settings.json`, or run the `.bat` with `--iso <path>`.
+- **"Windows protected your PC"** when starting: the build isn't code-signed. Click **More info**, then **Run anyway**.
+- **"Python was not found" or `py` is not recognized** (Windows): run the Python installer again, choose **Modify**, and tick **py launcher** and **Add Python to environment variables**.
+- **"cannot find Phillip's agent":** check that Phillip was downloaded next to AI-Melee:
+  - Linux: `~/src/phillip`;
+  - Windows: `AI-Melee\phillip-master`.
+- **The launcher doesn't open (Linux):** install Tk with `sudo pacman -S tk`.
+- **The game doesn't start, or shows a black window:** update your graphics driver.
+  - On Windows, double-click `RUN-AND-LOG.bat` and read `melee-pc.log`.
+  - melee-pc's [FAQ](https://999sian.github.io/melee-pc/) covers first-run problems.
+- **Anything else:** the full log is behind **Show log** (Linux) or in the console window (Windows).
+
+## For the maintainer: making the Windows download
+
+GitHub Actions minutes cost money on a private repository, so the Windows zip is built on your own Linux PC, and uploaded by hand. A Release made by hand is free.
+
+1. **Build the zip.** This runs inside an Ubuntu container, so the only thing it installs on your system is podman:
+
+   ```sh
+   sudo pacman -S --needed podman
+   cd ~/src/ai-melee && git pull
+   tools/agent/build_windows_zip.sh
+   ```
+
+   The first build takes a while. Later ones reuse `build-win/`. The result is `dist/AI-Melee-Windows-x86_64.zip`.
+
+2. **Publish it.**
+   - On github.com, open the repository → **Releases** → **Draft a new release**.
+   - Create a tag such as `ai-melee-v0.3`, attach the zip, and click **Publish release**.
+   - Invited players can then download it from the Releases page.
+   - For a new version, make a new release, or edit the old one and replace the file.
+
+   Google Drive or Dropbox work too: share the zip's link with players instead.
+
+The GitHub workflows (`.github/workflows`) only run when started by hand from the Actions tab, so pushes cost nothing.
+
+Developer notes (the bridge, every `play.py` option, environment variables, verification) are in [tools/agent/NOTES.md](tools/agent/NOTES.md). melee-pc's own documentation is in its [README](https://github.com/999sian/melee-pc#readme) and in [docs/](docs/).
 
 ## License
 
-Three situations, spelled out in [LICENSE.md](licenses/LICENSE.md): the decompiled
-game code in `src/melee` and `src/sysdolphin` is **not licensed** and remains
-the property of its copyright holders; the port code in `src/pc`, `tools`,
-`platforms`, `cmake` and `.github` is **GPL-3.0-or-later** ([COPYING](licenses/COPYING));
-bundled third-party components keep their own licenses. Because the game code
-cannot be relicensed, the repository as a whole is not distributable under the
-GPL. No game assets are in this repository.
+AI-Melee inherits melee-pc's licensing, spelled out in [licenses/LICENSE.md](licenses/LICENSE.md):
+- **Not licensed:** the decompiled game code in `src/melee` and `src/sysdolphin` remains the property of its copyright holders.
+- **GPL-3.0-or-later** ([licenses/COPYING](licenses/COPYING)): the port and AI-Melee code in `src/pc`, `tools`, `platforms`, `cmake` and `.github`.
+- **Their own licenses:** bundled third-party components.
+
+Because the game code can't be relicensed, the repository as a whole can't be distributed under the GPL.
+
+slippi-ai (MIT), libmelee (LGPL-3.0) and phillip (GPL-3.0) are downloaded on first run, under their own licenses. No game assets are in this repository.

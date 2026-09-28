@@ -1,9 +1,14 @@
 AI-Melee for Windows 10/11 (64-bit)
 ===================================
 
-Play Super Smash Bros. Melee against Phillip, the deep-RL Melee agent
-(https://github.com/vladfi1/phillip). You need your own Melee disc image:
-NTSC-U 1.02 (GALE01), usually a .iso file.
+Play Super Smash Bros. Melee on your PC against Phillip, the Melee AI.
+You need your own Melee disc image: NTSC-U 1.02 (GALE01), usually a .iso
+file. No game data is included.
+
+AI-Melee is built on melee-pc (https://github.com/999sian/melee-pc, the PC
+port of Melee), slippi-ai (https://github.com/vladfi1/slippi-ai, the newer
+Phillip), libmelee and phillip (https://github.com/vladfi1/phillip, the 2017
+agents).
 
 One-time setup
 --------------
@@ -62,3 +67,9 @@ Troubleshooting
   it. Netplay needs it allowed.
 - The game itself will not start or shows a black screen: update your GPU
   driver, then run RUN-AND-LOG.bat and read melee-pc.log.
+- Wrong disc remembered: delete ai-melee\settings.json.
+
+Updating
+--------
+Extract a newer AI-Melee zip over this folder; your settings and the
+converted agents are kept.

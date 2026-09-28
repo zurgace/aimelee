@@ -202,3 +202,41 @@ By hand:
   - `agent_link.c`, `agent_bridge.c` and `fake_game.c` cross-compile with mingw-w64 (with the game's flags for the first two). Under Wine 9, the Windows `fake_game.exe` passes the TCP protocol tests against the Linux `bridge.py`. It also refuses a path address with a pointer to the TCP form.
 - **Package.** `.github/workflows/ai-melee-windows.yml` builds upstream's Windows zip (`tools/package_windows.sh`) and adds the agent (`package_windows_agent.sh`): `ai-melee/` with the Python tools, `Play AI-Melee.bat` and `README-AI-Melee.txt`. An `ai-melee-v*` tag publishes it as a Release. The full game couldn't be cross-built in the development container: sqlite.org and the freetype mirror are blocked there, so CI makes the first full build.
 - **Unverified.** Nobody has played it on real Windows yet, including the tkinter disc picker, uv's TensorFlow export on Windows (`tensorflow-cpu` 2.13.1 has a cp311 win_amd64 wheel) and Ctrl-C handling in the console.
+
+## Developer reference
+
+Moved here from the README, which now holds only the player's install guide.
+Paths are relative to the repository root; `play.py --help` lists every
+option.
+
+### play.py options beyond the launcher
+
+- **More agents.** The `delay18` agents are not in Phillip's repo; they're in the "full set of trained agents" zip linked from [Phillip's README](https://github.com/vladfi1/phillip#readme) (Google Drive). Phillip's author calls `delay18/FalcoBF` the best human-like agent. Put each one's files (`params`, `snapshot*`) in `../phillip/agents/delay18/<name>/`, and the next `ai-melee` converts and uses them. They react 18 frames late (12 for Puff), by design.
+- **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
+- **One agent for everyone.** `--agent <name>` plays that one agent whatever P2 picks, as before. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
+- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help` (`--delay`, `--frame-lag` and `--record` apply to the 2017 agents).
+- **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
+  - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock MELEE_PREWARM=0 build/melee $MELEE_DISC` starts the game with the bridge on. `MELEE_PREWARM=0`, which `play.py` sets for you, avoids a boot-time crash in melee-pc's background disc prewarm ("HSD_ArchiveParse: byte-order mismatch"; see NOTES).
+  - `python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz` then plays P2, and `python3 tools/agent/dump_state.py` prints what the bridge exports. Run only one of the two: the bridge serves one client at a time.
+- **Performance.**
+  - slippi-ai runs on the CPU on a worker thread. Its reaction delay hides the compute, so a reply normally takes well under a millisecond. The first-run timing, kept in `tools/agent/weights/slippi/*.probe.txt`, shows your machine's numbers.
+  - A 2017 agent's network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
+  - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
+  - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
+- **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `inject_script.py` drives the agent port without any AI.
+
+### Environment variables the game reads for AI-Melee
+
+The bridge and its helpers are off unless `MELEE_AGENT_SOCKET` is set.
+melee-pc's other variables are in its own README.
+
+| Variable | Meaning |
+|---|---|
+| `MELEE_LOG_FILE=<path>` | Write the log to a file (default `melee-pc.log` beside `melee.exe` on Windows; empty disables). |
+| `MELEE_PREWARM=0` | Skip the background asset pre-warm after boot. |
+| `MELEE_AGENT_SOCKET=<path>` or `tcp:127.0.0.1:<port>` | Agent bridge: listen on this AF_UNIX socket (or TCP port on the loopback interface only; Windows accepts only the TCP form) so an external agent (e.g. Phillip) can watch the game and drive one port. Off by default; unset, nothing changes. |
+| `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
+| `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
+| `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
+| `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
+| `MELEE_AGENT_CSS_CHARS=<ckinds>` | With the agent bridge on: comma-separated character kinds (CKind, e.g. `2,20` for Fox and Falco). Opening the agent port's door from closed to HMN on the character select places its token on a random unlocked one of them. `play.py` sets it to the characters an AI will play, Sheik aside, unless run with `--p2-pick off`. |

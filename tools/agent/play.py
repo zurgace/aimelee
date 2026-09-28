@@ -237,7 +237,7 @@ def ensure_roster(args):
     print(f"play: agents: {roster.summary(chosen)}", flush=True)
     if skipped:
         print(f"play: not in your phillip checkout: {', '.join(a for a, _ in skipped)} (Phillip's "
-              "Google Drive zip has them; see README)", flush=True)
+              "Google Drive zip has them; see tools/agent/NOTES.md)", flush=True)
     return path
 
 
