@@ -292,9 +292,11 @@ class BridgeClient:
                 self._slp.append(payload)
 
     def take_slp(self):
-        """The Slippi event bytes received since the last call, in order."""
-        out = b"".join(self._slp)
-        self._slp.clear()
+        """The Slippi event messages received since the last call, in order:
+        one frame each (the match header is one too). libmelee ends a parse at
+        a frame's bookend, so feed them one at a time."""
+        out = self._slp
+        self._slp = []
         return out
 
     def states(self, timeout=None):
