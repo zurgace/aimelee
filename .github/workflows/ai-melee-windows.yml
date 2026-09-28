@@ -3,13 +3,19 @@ name: AI-Melee Windows release
 # Builds the Windows x86-64 game exactly as the Build workflow's windows job
 # does, adds the Python agent (tools/agent/package_windows_agent.sh) and, for
 # an ai-melee-v* tag, publishes AI-Melee-Windows-x86_64.zip as a GitHub
-# Release. Separate from Build because that workflow's release job needs every
+# Release. A manual run with release_tag set does the same, creating that tag
+# on the commit it built. Separate from Build because that workflow's release job needs every
 # platform, including signing secrets this fork does not have; the tag prefix
 # keeps it from matching Build's v* tags.
 on:
   push:
     tags: ['ai-melee-v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish as this release tag (ai-melee-v...); empty = build only'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -55,7 +61,7 @@ jobs:
   release:
     name: Publish release
     needs: [windows]
-    if: startsWith(github.ref, 'refs/tags/ai-melee-v')
+    if: startsWith(github.ref, 'refs/tags/ai-melee-v') || startsWith(inputs.release_tag, 'ai-melee-v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -70,13 +76,14 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           ls -lh artifacts
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" artifacts/*.zip --clobber
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" artifacts/*.zip --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" \
-              --title "AI-Melee ${GITHUB_REF_NAME#ai-melee-}" \
+            gh release create "${TAG}" --target "${GITHUB_SHA}" \
+              --title "AI-Melee ${TAG#ai-melee-}" \
               --notes-file tools/agent/RELEASE_NOTES.md \
               artifacts/*.zip
           fi
