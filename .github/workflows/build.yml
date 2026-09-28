@@ -1,7 +1,9 @@
 name: Build
 
-# Manual only in AI-Melee: this repository is private, where every run
-# spends Actions minutes (macOS runners at 10x). Start it from the Actions tab.
+# Manual only in AI-Melee: this is melee-pc's full matrix (Android, iOS,
+# macOS, signing secrets this fork does not have), so running it on every push
+# would mostly fail. Start it from the Actions tab; AI-Melee's Windows download
+# is ai-melee-windows.yml.
 on:
   workflow_dispatch:
 

@@ -9,12 +9,11 @@ Play Super Smash Bros. Melee on your PC against **Phillip**, the Melee AI. The g
 ## Contents
 
 - [Built on](#built-on)
-- [Getting access](#getting-access)
 - [Install on Linux (CachyOS)](#install-on-linux-cachyos)
 - [Install on Windows 10/11](#install-on-windows-1011)
 - [Playing](#playing)
 - [Troubleshooting](#troubleshooting)
-- [For the maintainer: making the Windows download](#for-the-maintainer-making-the-windows-download)
+- [For the maintainer: publishing the Windows download](#for-the-maintainer-publishing-the-windows-download)
 - [License](#license)
 
 ## Built on
@@ -36,10 +35,6 @@ AI-Melee's own part:
 - **Tournament-only random stages.**
 - **The launcher.**
 
-## Getting access
-
-This repository is private. Ask its owner to invite you on GitHub, and accept the invitation from your GitHub notifications or email. After that, the links below work while you are signed in to GitHub.
-
 ## Install on Linux (CachyOS)
 
 Written for CachyOS and other Arch-based systems, so package names are pacman's. Commands are typed in a terminal; they work in fish and bash alike. Plan on about 4 GB of disk space.
@@ -47,18 +42,17 @@ Written for CachyOS and other Arch-based systems, so package names are pacman's.
 1. **Install the packages** (once). Also install your graphics card's Vulkan driver: `nvidia-utils` (NVIDIA), `vulkan-radeon` (AMD) or `vulkan-intel`.
 
    ```sh
-   sudo pacman -S --needed base-devel git github-cli cmake ninja python python-numpy uv tk \
+   sudo pacman -S --needed base-devel git cmake ninja python python-numpy uv tk \
        vulkan-icd-loader openssl curl libx11 libxext libxrandr libxcursor libxi \
        libxfixes libxss libxkbcommon libxtst wayland wayland-protocols libdecor \
        alsa-lib libpulse dbus systemd-libs
    ```
 
-2. **Download AI-Melee and Phillip** side by side. `gh auth login` signs you in to GitHub once, which the private repository needs.
+2. **Download AI-Melee and Phillip** side by side.
 
    ```sh
-   gh auth login
    mkdir -p ~/src && cd ~/src
-   gh repo clone zurgace/aimelee ai-melee
+   git clone https://github.com/zurgace/aimelee.git ai-melee
    git clone https://github.com/vladfi1/phillip.git
    ```
 
@@ -107,7 +101,7 @@ For 64-bit Windows 10 or 11 with an up-to-date graphics driver. Nothing is compi
    If pip warns that a Scripts folder "is not on PATH", you can ignore it.
 
 3. **Download AI-Melee.**
-   - Signed in to GitHub, open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release. If the owner sent you a different link instead, use that: https://drive.google.com/file/d/1DJwW2SBuHCOLdU6DB3XorQUSQBbK6rrp/view?usp=sharing.
+   - Open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release, or get it from [Google Drive](https://drive.google.com/file/d/1DJwW2SBuHCOLdU6DB3XorQUSQBbK6rrp/view?usp=sharing).
    - Right-click the zip, choose **Extract All...**, and extract it somewhere you own, for example `C:\Games`. Not under `C:\Program Files`: the AI saves files next to itself.
    - You get a folder `AI-Melee` with `melee.exe`, `Play AI-Melee.bat` and an `ai-melee` folder.
 
@@ -185,29 +179,27 @@ On Windows, `Play AI-Melee.bat` passes options to `play.py`, for example `& '.\P
   - melee-pc's [FAQ](https://999sian.github.io/melee-pc/) covers first-run problems.
 - **Anything else:** the full log is behind **Show log** (Linux) or in the console window (Windows).
 
-## For the maintainer: making the Windows download
+## For the maintainer: publishing the Windows download
 
-GitHub Actions minutes cost money on a private repository, so the Windows zip is built on your own Linux PC, and uploaded by hand. A Release made by hand is free.
+GitHub Actions and Releases are free for a public repository, so GitHub can build the Windows zip and publish it for you.
 
-1. **Build the zip.** This runs inside an Ubuntu container, so the only thing it installs on your system is podman:
+**On GitHub (recommended).**
+1. Open the repository's **Actions** tab and choose **AI-Melee Windows release**.
+2. Click **Run workflow**, enter a `release_tag` such as `ai-melee-v0.3`, and click **Run workflow** again. Pushing a tag named `ai-melee-v...` does the same.
 
-   ```sh
-   sudo pacman -S --needed podman
-   cd ~/src/ai-melee && git pull
-   tools/agent/build_windows_zip.sh
-   ```
+After about 12 minutes the release appears on the Releases page, with `AI-Melee-Windows-x86_64.zip` and the text from `tools/agent/RELEASE_NOTES.md`. Running it again with the same tag replaces the zip. If you also share the zip on Google Drive, upload the new one there and keep the link in the Windows steps above current.
 
-   The first build takes a while. Later ones reuse `build-win/`. The result is `dist/AI-Melee-Windows-x86_64.zip`.
+**On your own PC (fallback).** This builds the same zip inside an Ubuntu container, so the only thing it installs on your system is podman:
 
-2. **Publish it.**
-   - On github.com, open the repository → **Releases** → **Draft a new release**.
-   - Create a tag such as `ai-melee-v0.3`, attach the zip, and click **Publish release**.
-   - Invited players can then download it from the Releases page.
-   - For a new version, make a new release, or edit the old one and replace the file.
+```sh
+sudo pacman -S --needed podman
+cd ~/src/ai-melee && git pull
+tools/agent/build_windows_zip.sh
+```
 
-   Google Drive or Dropbox work too: share the zip's link with players instead.
+The result is `dist/AI-Melee-Windows-x86_64.zip`. To publish it, go to **Releases** → **Draft a new release**, create a tag, attach the zip, and click **Publish release**.
 
-The GitHub workflows (`.github/workflows`) only run when started by hand from the Actions tab, so pushes cost nothing.
+melee-pc's own Build workflow (every platform, including signing steps this fork has no secrets for) only runs when started by hand from the Actions tab.
 
 Developer notes (the bridge, every `play.py` option, environment variables, verification) are in [tools/agent/NOTES.md](tools/agent/NOTES.md). melee-pc's own documentation is in its [README](https://github.com/999sian/melee-pc#readme) and in [docs/](docs/).
 

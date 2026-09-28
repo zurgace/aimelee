@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Builds the Windows download, dist/AI-Melee-Windows-x86_64.zip, on a Linux
 # PC: the game cross-compiled with MinGW (tools/package_windows.sh) plus the
-# Python agent (package_windows_agent.sh), exactly as the (manual-only)
-# ai-melee-windows.yml workflow does. Upload the zip by hand as a GitHub
-# Release, or anywhere else (README: "Making the Windows download").
+# Python agent (package_windows_agent.sh), exactly as the ai-melee-windows.yml
+# workflow does: the fallback when you'd rather not publish through GitHub
+# Actions. Upload the zip by hand as a GitHub Release (README: "For the
+# maintainer").
 #
 #   tools/agent/build_windows_zip.sh               in an Ubuntu 24.04 container (podman or docker)
 #   tools/agent/build_windows_zip.sh --no-container  on this machine, which must be Ubuntu/Debian
@@ -74,4 +75,4 @@ esac
 zip="${ROOT_DIR}/dist/AI-Melee-Windows-x86_64.zip"
 echo
 echo "Done: ${zip} ($(du -h "${zip}" | cut -f1))"
-echo "Upload it as a GitHub Release (README: \"Making the Windows download\")."
+echo "Upload it as a GitHub Release (README: \"For the maintainer\")."

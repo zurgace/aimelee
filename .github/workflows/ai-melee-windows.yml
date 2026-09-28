@@ -7,9 +7,12 @@ name: AI-Melee Windows release
 # on the commit it built. Separate from Build because that workflow's release job needs every
 # platform, including signing secrets this fork does not have; the tag prefix
 # keeps it from matching Build's v* tags.
-# Manual only (private repository, see build.yml); the usual way to make the
-# download is tools/agent/build_windows_zip.sh on your own PC (README).
+# Free on a public repository. Run it from the Actions tab with release_tag
+# set, or push an ai-melee-v* tag; tools/agent/build_windows_zip.sh builds the
+# same zip on your own PC as a fallback (README).
 on:
+  push:
+    tags: ['ai-melee-v*']
   workflow_dispatch:
     inputs:
       release_tag:
