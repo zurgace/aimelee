@@ -178,20 +178,29 @@ class SlippiBrain:
     def supports(self, character):
         return character in self.summary.characters
 
+    def prepare(self, port):
+        """Build the agent and warm the model up (libmelee port 1-4), once:
+        building it compiles the graph, which takes seconds -- too long for a
+        match that has started. Returns the seconds it took, or None if it
+        was ready already."""
+        if self.agent is not None:
+            return None
+        t0 = time.perf_counter()
+        self.controller = controller_class()(port)
+        self.agent = self.eval_lib.build_agent(
+            opponent_port=1 if port != 1 else 2, port=port, controller=self.controller,
+            state=self.state, name=pick_name(self.state), console_delay=0,
+            async_inference=self.async_inference)
+        if self.async_inference:
+            self.agent.start()
+        return time.perf_counter() - t0
+
     def start_match(self, port, opponent_port):
-        """libmelee ports (1-4). The model is built on the first match."""
-        if self.agent is None:
-            self.controller = controller_class()(port)
-            self.agent = self.eval_lib.build_agent(
-                opponent_port=opponent_port, port=port, controller=self.controller,
-                state=self.state, name=pick_name(self.state), console_delay=0,
-                async_inference=self.async_inference)
-            if self.async_inference:
-                self.agent.start()
-        else:
-            self.controller.port = port
-            self.agent._port = port
-            self.agent.set_ports(port, opponent_port)
+        """libmelee ports (1-4)."""
+        self.prepare(port)
+        self.controller.port = port
+        self.agent._port = port
+        self.agent.set_ports(port, opponent_port)
         self.controller.release_all()
 
     def step(self, gamestate):
@@ -233,6 +242,10 @@ class Runner:
 
     def serve(self, client):
         port = client.hello.agent_port
+        if self.args.brain != "classic":
+            took = self.brain.prepare(port + 1)
+            if took is not None:
+                self.log(f"model ready (warm-up {took:.1f} s)")
         if client.hello.proto_version < 2:
             self.log("this game build does not stream Slippi events (bridge v1): "
                      "only the classic agents can play")
@@ -298,11 +311,24 @@ class Runner:
                 self.log(f"slippi-ai plays one-on-one only ({len(ports)} players here)")
         elif self.args.brain != "classic":
             self.log("no Slippi events from the game this match: slippi-ai cannot see it")
-        if self.classic is not None and self.args.brain != "slippi":
+        if (self.classic is not None and self.args.brain != "slippi"
+                and me.ckind in self.classic.roster):
             self.classic.match_start(st, port)
             return "classic"
-        self.log("no agent for this character: the port stands still this match")
+        self.log(self.uncovered_message(me.ckind, port))
         return "idle"
+
+    def uncovered_message(self, ckind, port):
+        import roster
+
+        parts = [f"no AI plays {roster.display(ckind)}; P{port + 1} stands still this match."]
+        if self.args.brain != "classic":
+            parts.append("slippi-ai plays: " + ", ".join(sorted(display(c) for c in self.brain.characters)) + ";")
+        if self.classic is not None and self.args.brain != "slippi":
+            parts.append("the 2017 agents play: "
+                         + ", ".join(sorted({roster.display(ck) for ck in self.classic.roster})) + ";")
+        parts.append(f"or set P{port + 1} to CPU on the character select")
+        return " ".join(parts)
 
     def close(self):
         self.brain.stop()
