@@ -106,5 +106,52 @@ class PlayDiscoveryTest(unittest.TestCase):
             self.assertIn("Download ZIP", r.stderr)
 
 
+class CssCharsTest(unittest.TestCase):
+    """MELEE_AGENT_CSS_CHARS: the characters the AI's door opens with."""
+
+    def setUp(self):
+        sys.path.insert(0, str(AGENT))
+        import play
+        import roster
+        self.play, self.roster = play, roster
+
+    # medium-v2's probe: Falcon, Fox, Luigi, Marth, Peach, Pikachu, Popo,
+    # Jigglypuff, Samus, Yoshi, Sheik, Falco.
+    MEDIUM_V2 = "model: medium-v2\ntype: rl, delay 21 frames, 12 characters: ...\n" \
+                "ckinds: 0,2,7,9,12,13,14,15,16,17,19,20\nload: 3.0 s; ...\n"
+
+    def test_model_and_roster_minus_sheik(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "medium-v2"
+            model.write_bytes(b"")
+            model.with_name("medium-v2.probe.txt").write_text(self.MEDIUM_V2)
+            ckinds = self.play.probe_slippi(None, model)  # cached: nothing is run
+            for a in ("FalconFalconBF", "delay0/FoxFD", "delay0/FalcoFD", "MarthFD0", "PeachFD", "SheikFD"):
+                d = Path(tmp) / "phillip" / "agents" / a
+                d.mkdir(parents=True)
+                (d / "params").write_text("{}")
+                (d / "snapshot").write_bytes(b"\0")
+            chosen, _ = self.roster.choose(Path(tmp) / "phillip")
+            classic = self.roster.entries(chosen)
+        names = lambda css: sorted(self.roster.display(int(c)) for c in css.split(","))  # noqa: E731
+        self.assertEqual(names(self.play.css_chars(ckinds, classic)), sorted([
+            "Fox", "Falco", "Peach", "Jigglypuff", "Ice Climbers", "Captain Falcon", "Ganondorf",
+            "Marth", "Roy", "Pikachu", "Luigi", "Samus", "Yoshi"]))
+        self.assertEqual(names(self.play.css_chars(roster_ckinds=classic)), sorted([
+            "Fox", "Falco", "Peach", "Captain Falcon", "Ganondorf", "Marth", "Roy"]))
+        self.assertEqual(self.play.css_chars([0x13]), "")
+
+    def test_old_probe_without_ckinds_is_redone(self):
+        if os.name == "nt":
+            self.skipTest("a shell script stands in for the slippi-env python")
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "m"
+            model.with_name("m.probe.txt").write_text("model: m\ntype: rl\nload: 1 s\n")
+            fake = Path(tmp) / "python"
+            fake.write_text("#!/bin/sh\necho 'ckinds: 2'\n")
+            fake.chmod(0o755)
+            self.assertEqual(self.play.probe_slippi(fake, model), [2])
+
+
 if __name__ == "__main__":
     unittest.main()

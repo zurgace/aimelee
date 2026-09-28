@@ -55,6 +55,9 @@ Options:
                      Battlefield, Final Destination, Pokemon Stadium, Yoshi's
                      Story, Dream Land N64 or Fountain of Dreams; all: the
                      game's own Random Stage Switch list
+  --p2-pick on|off   on (default): opening the AI's door on the character
+                     select seats it as HMN with a random character an AI
+                     plays (Sheik aside: hold A on Zelda for her)
   --quick            skip the menus: boot straight into a Falcon match (or
                      --agent's matchup): debug VS, both ports human
   --record FILE      record every state the agent sees (dump_state format;
@@ -308,20 +311,33 @@ def ensure_slippi_model(explicit):
 
 
 def probe_slippi(python, model):
-    """Time the model once on this machine; the result is kept beside it."""
+    """Time the model once on this machine; the result is kept beside it.
+    Returns the CKinds the model plays, or None when it cannot run."""
     out = model.with_name(model.name + ".probe.txt")
-    if not out.exists():
+    if not out.exists() or "\nckinds:" not in out.read_text():  # older probes lack the CKinds
         print(f"play: timing {model.name} on this machine (once) ...", flush=True)
         r = subprocess.run([str(python), str(HERE / "slippi_agent.py"), "--probe", str(model),
                             "--async-inference"], capture_output=True, text=True)
         if r.returncode != 0:
             print(r.stderr[-2000:], file=sys.stderr)
-            return False
+            return None
         out.write_text(r.stdout)
+    ckinds = []
     for line in out.read_text().splitlines():
         if line.startswith(("type:", "load:")):
             print(f"play: slippi-ai {line}", flush=True)
-    return True
+        elif line.startswith("ckinds:"):
+            ckinds = [int(c) for c in line.split(":", 1)[1].split(",") if c.strip()]
+    return ckinds
+
+
+SHEIK = 0x13  # picked by holding A on Zelda as the match loads: not a character select icon
+
+
+def css_chars(model_ckinds=(), roster_ckinds=()):
+    """MELEE_AGENT_CSS_CHARS: the characters an AI will play, for the AI's
+    door to open with one of them at random. Sheik left out."""
+    return ",".join(str(c) for c in sorted(set(model_ckinds) | set(roster_ckinds)) if c != SHEIK)
 
 
 def agent_params(phillip, agent):
@@ -349,6 +365,9 @@ def main():
     ap.add_argument("--seed", type=int)
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--random-stages", choices=["legal", "all"], default="legal")
+    ap.add_argument("--p2-pick", choices=["on", "off"], default="on",
+                    help="opening the AI's door on the character select gives it a random "
+                         "character an AI plays (default on)")
     ap.add_argument("--record", type=Path)
     ap.add_argument("--tcp", action="store_true")
     ap.add_argument("--opponent", help="with --quick: the other port's character (Phillip name, "
@@ -370,15 +389,23 @@ def main():
     agent_script = HERE / "agent.py"
     if args.agent is not None:
         agent_source = ["--weights", str(ensure_weights(args))]
+        char = agent_params(args.phillip, args.agent).get("char")
+        ai_chars = css_chars(roster_ckinds=[phillip_obs.CKIND_BY_PHILLIP_NAME[char]]
+                             if char in phillip_obs.CKIND_BY_PHILLIP_NAME else [])
     else:
-        agent_source = ["--roster", str(ensure_roster(args))]
+        roster_path = ensure_roster(args)
+        agent_source = ["--roster", str(roster_path)]
+        ai_chars = css_chars(roster_ckinds=roster.read(roster_path))
         if args.brain != "classic":
             slippi = ensure_slippi_env()
             model = ensure_slippi_model(args.slippi_model) if slippi else None
-            if slippi and model and probe_slippi(slippi, model):
+            model_ckinds = probe_slippi(slippi, model) if slippi and model else None
+            if model_ckinds is not None:
                 python, agent_script = str(slippi), HERE / "slippi_agent.py"
                 agent_source = ["--model", str(model), "--brain", args.brain, "--async-inference",
                                 *agent_source]
+                ai_chars = css_chars(model_ckinds, [] if args.brain == "slippi"
+                                     else roster.read(roster_path))
             elif args.brain == "slippi":
                 fail("slippi-ai is not available (see above)")
             else:
@@ -396,6 +423,8 @@ def main():
     # LbRb.dat, which then reads as zeros and stops the game (NOTES.md).
     env.setdefault("MELEE_PREWARM", "0")
     env["MELEE_AGENT_RANDOM_STAGES"] = args.random_stages
+    if args.p2_pick == "on" and ai_chars:
+        env["MELEE_AGENT_CSS_CHARS"] = ai_chars
     if args.quick:
         if args.port > 2:
             fail("--quick seats ports 1 and 2 only; use --port 1 or 2")

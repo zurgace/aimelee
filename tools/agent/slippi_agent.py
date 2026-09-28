@@ -43,6 +43,17 @@ def display(character):
     return NAMES.get(character.name, character.name.title())
 
 
+# libmelee Character name -> CKind (the character select's order; libmelee's
+# values are the game's internal ids). Nana is part of Ice Climbers.
+CKINDS = {
+    "CPTFALCON": 0x00, "DK": 0x01, "FOX": 0x02, "GAMEANDWATCH": 0x03, "KIRBY": 0x04,
+    "BOWSER": 0x05, "LINK": 0x06, "LUIGI": 0x07, "MARIO": 0x08, "MARTH": 0x09, "MEWTWO": 0x0A,
+    "NESS": 0x0B, "PEACH": 0x0C, "PIKACHU": 0x0D, "POPO": 0x0E, "JIGGLYPUFF": 0x0F, "SAMUS": 0x10,
+    "YOSHI": 0x11, "ZELDA": 0x12, "SHEIK": 0x13, "FALCO": 0x14, "YLINK": 0x15, "DOC": 0x16,
+    "ROY": 0x17, "PICHU": 0x18, "GANONDORF": 0x19,
+}
+
+
 AXIS_RADIUS = 80        # slippi_ai.controller_lib: raw stick values are -80..80
 TRIGGER_SPACING = 140   # raw analog L/R is 0..140
 
@@ -374,6 +385,8 @@ def probe(path, steps, async_inference):
     print(f"model: {path}")
     print(f"type: {summary.type.name.lower()}, delay {summary.delay} frames, "
           f"{len(summary.characters)} characters: {chars}")
+    ckinds = sorted({CKINDS[c.name] for c in summary.characters if c.name in CKINDS})
+    print(f"ckinds: {','.join(str(c) for c in ckinds)}")
     print(f"load: {load_s:.1f} s; {'async' if async_inference else 'sync'} step over {steps} steps: "
           f"p50 {pct(0.5):.2f} ms, p99 {pct(0.99):.2f} ms, max {warm[-1]:.2f} ms")
     return pct(0.99)

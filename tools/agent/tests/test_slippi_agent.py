@@ -75,6 +75,13 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(int(games[-1].p0.character), 22)  # internal Falco: the agent's side first
         self.assertEqual(int(games[-1].p1.character), 1)   # internal Fox
 
+    def test_ckinds_name_libmelee_characters(self):
+        import slippi_agent
+
+        for name in slippi_agent.CKINDS:
+            melee.Character[name]
+        self.assertEqual(sorted(slippi_agent.CKINDS.values()), list(range(26)))
+
     def test_pad_mapping(self):
         import slippi_agent
 
