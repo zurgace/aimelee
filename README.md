@@ -1,4 +1,5 @@
-# melee-pc
+# ~melee-pc~ ai-melee
+using the readme from melee-pc as the base, but with some excerpts tied to ai-melee. may be corrected in the future
 
 > **AI-Melee.** This fork adds an agent bridge for playing offline against the
 > [Phillip](https://github.com/vladfi1/phillip) AI. Install and play on
