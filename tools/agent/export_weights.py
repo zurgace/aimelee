@@ -15,7 +15,8 @@ TF 2.13 needs Python 3.8-3.11; uv provides both without touching the system:
         tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF
 
 writes tools/agent/weights/FalconFalconBF.npz. --agent is a path under
-<phillip>/agents (e.g. delay0/FoxFD) or an absolute agent directory.
+<phillip>/agents (e.g. delay0/FoxFD) or an absolute agent directory; repeat
+it to export several agents with one TensorFlow start.
 """
 
 import argparse
@@ -214,35 +215,42 @@ def make_refs(actor, meta, seed=1234):
     return refs
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phillip", default=str(HERE.parents[2] / "phillip"),
-                    help="phillip checkout (default: ../phillip beside this repo)")
-    ap.add_argument("--agent", required=True, help="e.g. FalconFalconBF or delay0/FoxFD")
-    ap.add_argument("--out", type=Path, help="output .npz (default tools/agent/weights/<agent>.npz)")
-    ap.add_argument("--delay", type=int, help="override the agent's delay (Phillip pads the weights)")
-    args = ap.parse_args()
-
+def export(phillip, agent, out=None, delay=None):
     import numpy as np
 
-    path = agent_dir(args.phillip, args.agent)
+    path = agent_dir(phillip, agent)
     overrides = {"epsilon": 0.0}
-    if args.delay is not None:
-        overrides["delay"] = args.delay
-    actor, params = load_actor(args.phillip, path, overrides)
+    if delay is not None:
+        overrides["delay"] = delay
+    actor, params = load_actor(phillip, path, overrides)
     arrays, meta = resolve(actor)
-    meta["name"] = args.agent
+    meta["name"] = agent
     meta["source"] = str(path)
     meta["params"] = {k: v for k, v in params.items() if isinstance(v, (int, float, str, bool, list))}
     meta["epsilon"] = float(params.get("epsilon") or 0.02)  # the agent's own; play uses --epsilon
     meta["ref_epsilon"] = 0.0
     arrays.update(make_refs(actor, meta))
-    out = args.out or DEFAULT_OUT / (args.agent.replace("/", "_") + ".npz")
+    out = out or DEFAULT_OUT / (agent.replace("/", "_") + ".npz")
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez(out, meta=np.array(json.dumps(meta)), **arrays)
     print(f"wrote {out}: {meta['num_actions']} actions ({meta['action_type']}), act_every "
           f"{meta['act_every']}, delay {meta['delay']}, memory {meta['memory']}, "
-          f"{meta['gru_layers']} GRU layers")
+          f"{meta['gru_layers']} GRU layers", flush=True)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--phillip", default=str(HERE.parents[2] / "phillip"),
+                    help="phillip checkout (default: ../phillip beside this repo)")
+    ap.add_argument("--agent", required=True, action="append",
+                    help="e.g. FalconFalconBF or delay0/FoxFD; repeat to export several in one run")
+    ap.add_argument("--out", type=Path, help="output .npz (default tools/agent/weights/<agent>.npz)")
+    ap.add_argument("--delay", type=int, help="override the agent's delay (Phillip pads the weights)")
+    args = ap.parse_args()
+    if len(args.agent) > 1 and args.out is not None:
+        ap.error("--out names one file: give a single --agent with it")
+    for agent in args.agent:  # each Phillip Actor builds its own tf.Graph
+        export(args.phillip, agent, args.out, args.delay)
 
 
 if __name__ == "__main__":
