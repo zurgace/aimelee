@@ -226,6 +226,7 @@ per-device `.controller` files; everything else shares `launcher.cfg`.
 | `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
 | `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
 | `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
+| `MELEE_AGENT_CSS_CHARS=<ckinds>` | With the agent bridge on: comma-separated character kinds (CKind, e.g. `2,20` for Fox and Falco). Opening the agent port's door from closed to HMN on the character select places its token on a random unlocked one of them. `play.py` sets it to the characters an AI will play, Sheik aside, unless run with `--p2-pick off`. |
 | `--no-card` | Boot without a memory card. |
 | `--dvd <image>` | Explicit form of the positional disc argument. |
 | `--version` | Print the build version and exit. |
@@ -354,7 +355,10 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
   | anyone else | none: P2 stands still, so set P2 to CPU instead | |
 
   - Take P1 (keyboard, or a gamepad on port 1) and pick your character.
-  - P2 reads as plugged in. With P1's cursor, click P2's door to CPU, pick P2's character, then click the door on to HMN. For Sheik, pick Zelda and hold A as the match loads.
+  - With P1's cursor, click P2's door once. P2 opens as HMN with a random character an AI plays, and the terminal names it. With medium-v2 and the repo's agents that is one of Captain Falcon, Falco, Fox, Ganondorf, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Roy, Samus and Yoshi.
+    - Another roll: click the door three more times (CPU, closed, HMN).
+    - A character of your choice: click the door to CPU, pick P2's character, then click the door on to HMN. For Sheik, pick Zelda and hold A as the match loads.
+    - `--p2-pick off` opens the door with no character, as the game does.
   - Choose a stage: Final Destination for every agent except Falcon's (Battlefield). The terminal names the agent at each match start.
 - **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
 - **After the match.** P2 counts as ready on the results screen, so press Start once and you're back at the character select, with P2 still seated.
@@ -427,7 +431,7 @@ For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You dow
 
 6. **In the game.**
    - Click the game window so it gets the keyboard.
-   - Set up the match as in [Play](#play). You are P1. Switch P2 to CPU, pick its character, then switch it back to HMN.
+   - Set up the match as in [Play](#play). You are P1. Click P2's door once: P2 opens as HMN with a random character an AI plays. To choose it yourself, switch P2 to CPU, pick its character, then switch it back to HMN.
      - The newer Phillip plays Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi.
      - The 2017 agents also cover Ganondorf and Roy.
      - Anyone else stands still.

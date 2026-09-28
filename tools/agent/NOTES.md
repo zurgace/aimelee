@@ -16,6 +16,7 @@ plan it started from is [PLAN.md](PLAN.md); where the two disagree, this file is
 | 2026-09-28 | Lockstep with a short timeout is the default sync mode. The observation is the end of tick N; the action applies from tick N+1. | This is the lowest possible latency, the same as Phillip's lockstep training, and the agent has about a frame of slack anyway. |
 | 2026-09-28 | Hooks piggyback on existing per-tick `src/pc` calls (`pc_net_sync`, `pc_slp_tick_end`), so nothing under `src/melee` or `src/sysdolphin` changes game logic. | Ground rule. |
 | 2026-09-28 | The only `src/melee` edit is the test-only `MELEE_DEBUG_VS_CHARS` knob, inside the existing `#ifdef TARGET_PC` block of `gmvsmode.c`. | You approved it. It gives reproducible Falcon-vs-Falcon-on-Battlefield checks without the CSS. |
+| 2026-09-28 | A second `src/melee` edit: in `mncharsel.c`, under `#ifdef TARGET_PC`, the agent port's door opening from closed to HMN places a random character from `MELEE_AGENT_CSS_CHARS` (a copy of `mnCharSel_8025FB50`'s placement, limited to those icons). | You approved it. The doors, icons, tokens and cursors are all `static` in that file, so `src/pc` cannot reach them. Without the variable, or on other doors, the character select is unchanged. |
 | 2026-09-28 | The container build seeds CMake FetchContent dependencies from git clones. | `github.com/<owner>/<repo>/archive/...` tarball URLs return 403 here, while release assets and git work. |
 
 ## Open questions
