@@ -479,6 +479,10 @@ int pc_agent_css_chars(int door, uint8_t* out, int cap) {
     return n;
 }
 
+bool pc_agent_css_door(int door) {
+    return usable() && door == s_port;
+}
+
 void pc_agent_css_picked(int door, int ckind, int among) {
     const char* name = ckind >= 0 && ckind < (int)(sizeof k_ckind_names / sizeof k_ckind_names[0]) ?
                            k_ckind_names[ckind] :

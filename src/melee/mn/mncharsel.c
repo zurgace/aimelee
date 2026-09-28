@@ -3414,7 +3414,13 @@ void mnCharSel_CursorThink(HSD_GObj* gobj)
                                     if (pk2 != 3 &&
                                         mnCharSel_803F0DFC.doors[ci].sel_icon <
                                             0x19U &&
-                                        (pk2 != 0 || (s32) cursor->x4 == ci))
+                                        (pk2 != 0 || (s32) cursor->x4 == ci
+#ifdef TARGET_PC
+                                         /* The AI's HMN token: any cursor,
+                                          * as for a CPU's (agent_bridge.c) */
+                                         || pc_agent_css_door(ci)
+#endif
+                                             ))
                                     {
                                         struct CSSCharModel* mc =
                                             mnCharSel_804A0BD0[ci];
