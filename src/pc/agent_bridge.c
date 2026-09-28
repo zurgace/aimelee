@@ -16,7 +16,9 @@
 #include <melee/ft/fighter.h>
 #include <melee/ft/inlines.h>
 #include <melee/ft/types.h>
+#include <melee/gm/gm_1601.h>
 #include <melee/gm/gm_1A3F.h>
+#include <melee/gm/gmmain_lib.h>
 #include <melee/gm/gmscene.h>
 #include <melee/gm/gmvs.h>
 #include <melee/gm/types.h>
@@ -51,7 +53,10 @@ static uint32_t s_late_total;
 static uint32_t s_fight_driven, s_fight_late;
 static bool s_warned_device;
 
+static void random_stages_restore(void);
+
 static void shutdown_link(void) {
+    random_stages_restore(); /* quitting from the stage select */
     agent_link_close();
 }
 
@@ -323,10 +328,100 @@ static void inject(PADStatus* head) {
     }
 }
 
+/* MELEE_AGENT_RANDOM_STAGES=legal: while the stage select is up, its random
+ * pick (mnStageSel_802599EC) draws from the tournament stages only. The game
+ * already limits random to the stages switched on in Options > Random Stage
+ * Switch (gm_80164330), so this switches that on with just these stages and
+ * puts the player's own switches back when the stage select closes: the
+ * memory card never sees the change. A stage still locked on the card stays
+ * out, as the game's own check has it. */
+static const struct {
+    uint16_t stkind;
+    const char* name;
+} k_random_stages[] = {
+    {0x1F, "Battlefield"},
+    {0x20, "Final Destination"},
+    {0x03, "Pokemon Stadium"},
+    {0x08, "Yoshi's Story"},
+    {0x1C, "Dream Land N64"},
+    {0x02, "Fountain of Dreams"},
+};
+#define RANDOM_SWITCHES 0x1D /* the switches gm_80164330 counts */
+
+static int s_random_legal = -1; /* from the environment, on first use */
+static bool s_random_on;        /* the override is in place */
+static uint32_t s_saved_stage_mask;
+static uint8_t s_saved_switch_flag;
+
+static void random_stages_tick(void) {
+    if (s_random_legal < 0) {
+        const char* e = getenv("MELEE_AGENT_RANDOM_STAGES");
+        s_random_legal = e != NULL && strcmp(e, "legal") == 0;
+    }
+    if (!s_random_legal) {
+        return;
+    }
+    const bool sss = gm_804D6720 != NULL && gm_804D6720->scene_kind == GS_SSS;
+    struct GamePrefs* prefs = gmMainLib_GetGamePrefs();
+    uint8_t* flags = &gmMainLib_GetCardData()->save_data.x186C;
+    if (sss && !s_random_on) {
+        s_saved_stage_mask = prefs->stage_mask;
+        s_saved_switch_flag = *flags & 2;
+        uint32_t mask = 0;
+        for (int i = 0; i < RANDOM_SWITCHES; i++) {
+            for (size_t k = 0; k < sizeof k_random_stages / sizeof k_random_stages[0]; k++) {
+                if (gm_801641CC((u8)i) == k_random_stages[k].stkind) {
+                    mask |= 1u << i;
+                }
+            }
+        }
+        prefs->stage_mask = mask;
+        gmMainLib_8015EE54(); /* the Random Stage Switch is in effect */
+        s_random_on = true;
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            char locked[160] = "";
+            for (int i = 0; i < RANDOM_SWITCHES; i++) {
+                if ((mask & (1u << i)) && !gm_80164330(i)) {
+                    for (size_t k = 0; k < sizeof k_random_stages / sizeof k_random_stages[0]; k++)
+                    {
+                        if (gm_801641CC((u8)i) == k_random_stages[k].stkind) {
+                            strncat(locked, locked[0] ? ", " : " (locked on this save: ",
+                                sizeof locked - strlen(locked) - 1);
+                            strncat(locked, k_random_stages[k].name,
+                                sizeof locked - strlen(locked) - 1);
+                        }
+                    }
+                }
+            }
+            if (locked[0]) {
+                strncat(locked, ")", sizeof locked - strlen(locked) - 1);
+            }
+            pc_log_line("agent: random stage picks Battlefield, Final Destination, Pokemon "
+                        "Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams%s",
+                locked);
+        }
+    } else if (!sss) {
+        random_stages_restore();
+    }
+}
+
+static void random_stages_restore(void) {
+    if (!s_random_on) {
+        return;
+    }
+    uint8_t* flags = &gmMainLib_GetCardData()->save_data.x186C;
+    gmMainLib_GetGamePrefs()->stage_mask = s_saved_stage_mask;
+    *flags = (uint8_t)((*flags & ~2) | s_saved_switch_flag);
+    s_random_on = false;
+}
+
 void pc_agent_pre_tick(void) {
     if (!usable()) {
         return;
     }
+    random_stages_tick();
     s_tick++;
     const bool fight = in_fight();
     if (s_fight && !fight) {

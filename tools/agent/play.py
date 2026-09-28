@@ -51,6 +51,10 @@ Options:
   --sync MODE        lockstep (default) or async
   --timeout-ms MS    lockstep wait per tick (default 4)
   --frame-lag K      hold each pad K extra ticks (emulate a slower pipe)
+  --random-stages S  legal (default): Random on the stage select picks one of
+                     Battlefield, Final Destination, Pokemon Stadium, Yoshi's
+                     Story, Dream Land N64 or Fountain of Dreams; all: the
+                     game's own Random Stage Switch list
   --quick            skip the menus: boot straight into a Falcon match (or
                      --agent's matchup): debug VS, both ports human
   --record FILE      record every state the agent sees (dump_state format;
@@ -344,6 +348,7 @@ def main():
     ap.add_argument("--frame-lag", type=int, default=0)
     ap.add_argument("--seed", type=int)
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--random-stages", choices=["legal", "all"], default="legal")
     ap.add_argument("--record", type=Path)
     ap.add_argument("--tcp", action="store_true")
     ap.add_argument("--opponent", help="with --quick: the other port's character (Phillip name, "
@@ -390,6 +395,7 @@ def main():
     # melee-pc's background prewarm can race the game's own boot-time load of
     # LbRb.dat, which then reads as zeros and stops the game (NOTES.md).
     env.setdefault("MELEE_PREWARM", "0")
+    env["MELEE_AGENT_RANDOM_STAGES"] = args.random_stages
     if args.quick:
         if args.port > 2:
             fail("--quick seats ports 1 and 2 only; use --port 1 or 2")
