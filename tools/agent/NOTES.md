@@ -112,6 +112,11 @@ By hand:
 - **`hitstun_frames_left`** is the first 4 bytes of `Fighter::mv` read as a float, exactly as Phillip read `fp+0x2340`. It is exact in damage states. In other states it holds whatever the current state stored there, which on LP64 can differ from the GameCube (int endianness, re-laid-out views). Values are near zero in both cases.
 - **`character`** (used only by agents with `omit_char=false`) was the CSS door's `sel_icon` byte in Phillip. The door static is not reachable from `src/pc`, so we derive the icon from the CKind. Sheik maps to the Zelda icon, as she did on the CSS.
 - **Spawns.** Phillip's Dolphin ran the "Netplay Community Settings" Gecko code, which includes neutral spawns and other rule changes; we run vanilla. Only the starting positions differ.
+- **Boot crash with prewarm (upstream).** With melee-pc's background prewarm on, the game's own boot-time preload of `LbRb.dat` (1045 bytes) was once read as all zeros. The game stopped with `HSD_ArchiveParse: byte-order mismatch! Please check data format 0 415` (lbarchive.c:28).
+  - It happened on a SHA-1-verified GALE01 1.02 disc. Plain `./melee` on the same disc booted fine because the prewarm started later relative to the game's loads.
+  - `MELEE_PREWARM=0` avoids it, and `play.py` sets it unless `MELEE_PREWARM` is already set.
+  - Root cause not pinned down: every read goes through aurora's single DVD worker (per-file nod handles), so the collision is more likely in how the preload's completion interacts with the prewarm's synchronous reads. It's upstream melee-pc's, to be reported there.
+- **Results screen.** It waits for every plugged-in human port to press Start, and counts an unplugged port as ready (gmresultplayer.c). A second Start un-readies a port. So on `GS_RESULTS` the bridge skips its neutral fill-in: an agent port with no controller reads as unplugged, and one Start from the player moves on. A real controller on the agent port still has to press Start itself.
 - **Supported agents.** `delay12/MarthFD` (the predictive model) is a stretch goal. `delay18/*` weights are not in the phillip repo; they are on Google Drive.
 - **Out of scope.** Netplay, record/replay and synctest: the bridge refuses to arm under them.
 

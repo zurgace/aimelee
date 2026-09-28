@@ -323,11 +323,12 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
   - P2 reads as plugged in. With P1's cursor, click P2's door to CPU, pick Captain Falcon for it, then click the door on to HMN.
   - Choose Battlefield.
 - **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
+- **After the match.** P2 counts as ready on the results screen, so press Start once and you're back at the character select, with P2 still seated.
 - **Quick start.** `--quick` skips the menus and boots straight into the agent's matchup.
 - **Other agents.** `--agent <name>` picks another agent. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
 - **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help`.
 - **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
-  - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee $MELEE_DISC` starts the game with the bridge on.
+  - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock MELEE_PREWARM=0 build/melee $MELEE_DISC` starts the game with the bridge on. `MELEE_PREWARM=0`, which `play.py` sets for you, avoids a boot-time crash in melee-pc's background disc prewarm ("HSD_ArchiveParse: byte-order mismatch"; see NOTES).
   - `python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz` then plays P2, and `python3 tools/agent/dump_state.py` prints what the bridge exports. Run only one of the two: the bridge serves one client at a time.
 - **Performance.**
   - A network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.

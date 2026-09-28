@@ -9,8 +9,10 @@ That plays FalconFalconBF on P2: pick Captain Falcon for yourself (P1, the
 keyboard, or a gamepad on port 1), set P2 to HMN Captain Falcon (P2 reads as
 plugged in; with P1's cursor: toggle P2's door to CPU, pick Falcon, toggle
 on to HMN), choose Battlefield, and play. The agent takes P2 once the match
-starts and lets go when it ends; the game never waits on it for more than
-the timeout, and carries on if it dies (play.py restarts it).
+starts and lets go when it ends. On the results screen P2 counts as ready,
+so one Start takes you back to the character select. The game never waits on
+the agent for more than the timeout, and carries on if it dies (play.py
+restarts it).
 
 What it finds by itself:
   the game      build/melee in a checkout, or melee.exe beside the ai-melee
@@ -39,6 +41,9 @@ Options:
                      verify_model.py --record replays it through Phillip)
   --tcp              use loopback TCP instead of a Unix socket (always on
                      Windows, whose Python has no Unix sockets)
+
+The game runs with MELEE_PREWARM=0 (melee-pc's background disc prewarm can
+crash the boot; see NOTES.md) unless you set MELEE_PREWARM yourself.
 
 The bridge serves one client at a time and a new connection replaces the
 old one, so record through --record rather than running dump_state.py
@@ -233,6 +238,9 @@ def main():
     env = dict(os.environ)
     env.update(MELEE_AGENT_SOCKET=sock, MELEE_AGENT_PORT=str(args.port), MELEE_AGENT_SYNC=args.sync,
                MELEE_AGENT_TIMEOUT_MS=str(args.timeout_ms))
+    # melee-pc's background prewarm can race the game's own boot-time load of
+    # LbRb.dat, which then reads as zeros and stops the game (NOTES.md).
+    env.setdefault("MELEE_PREWARM", "0")
     if args.quick:
         if args.port > 2:
             fail("--quick seats ports 1 and 2 only; use --port 1 or 2")
