@@ -19,6 +19,11 @@ the next tick's pad, the way Phillip's Dolphin loop did:
 Outside a match the port is released (it reads as a neutral, plugged-in pad,
 so the character select can seat it). If the game goes away the agent waits
 for it to come back unless --once.
+
+With --roster (a file play.py writes from roster.py) the agent is chosen per
+match from the agent port's character: Phillip's agent for that character, a
+clone's as a stand-in (Ganondorf, Roy), or none -- then the port is released
+for the whole match.
 """
 
 import os
@@ -87,24 +92,72 @@ class Runner:
 
         self.po = po
         self.args = args
-        self.model = phillip_model.PhillipModel(args.weights)
-        meta = self.model.meta
-        params = meta.get("params", {})
-        self.char = args.char or params.get("char")
-        self.expect_stage = params.get("stage", "final_destination")
-        self.name = meta.get("name", Path(args.weights).stem)
-        self.agent = phillip_agent.PhillipAgent(self.model, self.char, epsilon=args.epsilon,
-                                                real_delay=0, seed=args.seed)
+        self.phillip_agent = phillip_agent
+        self.phillip_model = phillip_model
+        self.models = {}  # weights path -> PhillipModel
+        self.roster = None
+        self.stand_in = None
+        if args.roster is not None:
+            import roster
+            self.roster_mod = roster
+            self.roster = roster.read(args.roster)
+            self.agent = None
+            self.name = "roster"
+        else:
+            self.use(args.weights, args.char)
         self.stats = Stats()
         self.rec = None
         if args.record:
             self.rec = open(args.record, "wb")
             bridge.write_record_header(self.rec)
             self.rec.flush()
+        if self.roster is None:
+            self.describe()
+        else:
+            chars = sorted({self.roster_mod.display(ck) for ck in self.roster})
+            self.log(f"roster: {', '.join(chars)}")
+
+    def use(self, weights, char=None):
+        """Make the agent at `weights` the one that plays."""
+        weights = str(weights)
+        if weights not in self.models:
+            self.models[weights] = self.phillip_model.PhillipModel(weights)
+        self.model = self.models[weights]
+        meta = self.model.meta
+        params = meta.get("params", {})
+        self.char = char or params.get("char")
+        self.expect_stage = params.get("stage", "final_destination")
+        self.name = meta.get("name", Path(weights).stem)
+        self.agent = self.phillip_agent.PhillipAgent(self.model, self.char, epsilon=self.args.epsilon,
+                                                     real_delay=0, seed=self.args.seed)
+
+    def describe(self):
         self.log(f"{self.name}: {self.char} on {self.expect_stage}, {self.model.action_type} actions, "
                  f"act_every {self.model.act_every}, delay {self.model.delay} steps "
                  f"({self.model.delay * self.model.act_every} frames), memory {self.model.memory}, "
-                 f"epsilon {args.epsilon}")
+                 f"epsilon {self.args.epsilon}")
+
+    def pick(self, ckind):
+        """Roster mode: choose this match's agent from the port's character.
+        False when no agent plays it."""
+        rd = self.roster_mod
+        entry = self.roster.get(ckind)
+        if entry is None:
+            covered = sorted({rd.display(ck) for ck in self.roster})
+            self.log(f"no Phillip agent plays {rd.display(ckind)}; the port stands still this match. "
+                     f"Pick {', '.join(covered)}, or set it to CPU on the character select")
+            return False
+        self.use(entry["weights"], entry["char"])
+        self.name = entry.get("agent", self.name)
+        self.stand_in = None
+        if entry.get("stand_in_for"):
+            # The network only ever saw its own character: it sees that one.
+            self.stand_in = self.po.CSS_ICON_BY_CKIND[self.po.CKIND_BY_PHILLIP_NAME[entry["char"]]]
+            source = rd.display(self.po.CKIND_BY_PHILLIP_NAME[entry["char"]])
+            self.log(f"{rd.display(ckind)}: no Phillip agent, {source}'s ({self.name}) stands in")
+        else:
+            self.log(f"{rd.display(ckind)}: {self.name}")
+        return True
 
     def log(self, msg):
         if not self.args.quiet:
@@ -113,7 +166,11 @@ class Runner:
     # ---- per match ------------------------------------------------------
 
     def match_start(self, st, port):
-        self.agent.reset()
+        if self.roster is not None:
+            self.agent = None  # chosen once the port's fighter is in the state
+        else:
+            self.agent.reset()
+        self.idle = False
         self.frames_in_match = 0
         self.last_scene_frame = None
         self.prev_obs = {}
@@ -131,7 +188,7 @@ class Runner:
         want_ck = po.CKIND_BY_PHILLIP_NAME.get(self.char)
         want_st = po.STKIND_BY_PHILLIP_NAME.get(self.expect_stage)
         problems = []
-        if want_ck is not None and me.ckind != want_ck:
+        if self.roster is None and want_ck is not None and me.ckind != want_ck:
             problems.append(f"it plays {self.char} but P{port + 1} is "
                             f"{names.CHARACTER_KIND.get(me.ckind, me.ckind)}")
         if want_st is not None and st.stage != want_st:
@@ -147,8 +204,17 @@ class Runner:
             print(f"agent: WARNING: {self.name} {p}; expect odd play", flush=True)
 
     def pad_for(self, st, port):
-        """The pad for the next tick, running Agent.act on a new frame."""
+        """The pad for the next tick, running Agent.act on a new frame; None
+        when no agent plays this match (roster mode) and the port is let go."""
         me = st.fighters[port]
+        if self.idle:
+            return None
+        if self.agent is None:
+            if not me.present:
+                return self.pad
+            if not self.pick(me.ckind):
+                self.idle = True
+                return None
         if self.opp_port is None:
             self.opp_port = next((i for i, f in enumerate(st.fighters) if f.present and i != port), None)
             if self.opp_port is not None and me.present:
@@ -165,6 +231,8 @@ class Runner:
         obs = []
         for p in (self.opp_port, port):
             o = self.po.player_obs(st.fighters[p], self.prev_obs.get(p))
+            if p == port and self.stand_in is not None:
+                o.character = self.stand_in
             self.prev_obs[p] = o
             obs.append(o)
         steps = self.agent.steps
@@ -206,8 +274,13 @@ class Runner:
             if not in_fight or st.match_start:
                 self.match_start(st, port)
                 in_fight = True
-            released = False
             pad = self.pad_for(st, port)
+            if pad is None:
+                if not released:
+                    client.send_input(st.tick + 1, bridge.Pad.neutral(), release=True)
+                    released = True
+                continue
+            released = False
             if self.args.frame_lag:
                 self.lag.append(pad)
                 pad = self.lag.popleft()
@@ -248,7 +321,10 @@ class Runner:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--weights", required=True, type=Path, help="an .npz from export_weights.py")
+    which = ap.add_mutually_exclusive_group(required=True)
+    which.add_argument("--weights", type=Path, help="an .npz from export_weights.py: one agent")
+    which.add_argument("--roster", type=Path,
+                       help="a roster file from play.py: the agent follows the port's character")
     ap.add_argument("--socket", default=bridge.default_socket_path())
     ap.add_argument("--epsilon", type=float, default=0.0,
                     help="random-action rate (Phillip's README plays with 0; training used ~0.02)")
