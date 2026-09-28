@@ -5,3 +5,5 @@ weights/
 settings.json
 # slippi-ai's Python environment (play.py builds it from slippi-requirements.txt)
 slippi-env/
+# the launcher's log of the last game it started
+ai-melee.log
