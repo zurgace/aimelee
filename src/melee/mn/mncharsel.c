@@ -2182,6 +2182,83 @@ void mnCharSel_8025FB50(u8 door, s32 arg1)
     }
 }
 
+#ifdef TARGET_PC
+#include "pc/agent_bridge.h"
+/* With the AI bridge on, the AI's door opening as HMN gets a random
+ * character an AI plays (agent_bridge.c): mnCharSel_8025FB50 limited to
+ * those characters' icons. */
+static void mnCharSel_PcAgentPick(u8 door)
+{
+    u8 kinds[32];
+    u8 pool[25];
+    s32 n_kinds = pc_agent_css_chars(door, kinds, sizeof kinds);
+    s32 n_pool = 0;
+    s32 i;
+    s32 k;
+    s32 icon_idx;
+    HSD_JObj* icon_jobj;
+
+    for (i = 0; i < 25; i++) {
+        if (icons[i].state == 0) {
+            continue;
+        }
+        for (k = 0; k < n_kinds; k++) {
+            if (icons[i].char_kind == kinds[k]) {
+                pool[n_pool++] = (u8) i;
+                break;
+            }
+        }
+    }
+    if (n_pool == 0) {
+        return;
+    }
+    icon_idx = pool[HSD_Randi(n_pool)];
+
+    mnCharSel_804D6CB0->vs.start.players[getPlayerForDoor(door)].ckind =
+        icons[icon_idx].char_kind;
+    mnCharSel_803F0DFC.doors[door].sel_icon = (u8) icon_idx;
+    if (mnCharSel_803F0DFC.doors[door].sel_icon !=
+        mnCharSel_803F0DFC.doors[door].sel_icon_prev)
+    {
+        u8 costume;
+        for (costume = 0;; costume++) {
+            mnCharSel_803F0DFC.doors[door].costume = costume;
+            if (!isDuplicateCostumeExact(door)) {
+                break;
+            }
+        }
+    }
+
+    /* The token on the icon, out of the door's own hand if it held it. */
+    if (mnCharSel_804A0BC0[door]->x5 == 1 &&
+        mnCharSel_804A0BC0[door]->x6 == door)
+    {
+        mnCharSel_804A0BC0[door]->x5 = 2;
+    }
+    mnCharSel_804A0BD0[door]->x5 = 0;
+    mnCharSel_804A0BD0[door]->x8 = 3.4f + icons[icon_idx].bound_l;
+    mnCharSel_804A0BD0[door]->xC = -3.0f + icons[icon_idx].bound_u;
+    mnCharSel_804A0BD0[door]->x10 = mnCharSel_804A0BD0[door]->x8;
+    mnCharSel_804A0BD0[door]->x14 = mnCharSel_804A0BD0[door]->xC;
+    HSD_GObjGXLink_803909D8(mnCharSel_804A0BD0[door]->gobj,
+                            mnCharSel_804A0BC0[mnCharSel_804D6CF5 - 1]->gobj);
+
+    if (mnCharSel_804D6CF5 == 1) {
+        lb_80011E24(mnCharSel_804D6CC0, &icon_jobj,
+                    icons[icon_idx].joint_id_1p, -1);
+    } else {
+        lb_80011E24(mnCharSel_804D6CC0, &icon_jobj,
+                    icons[icon_idx].joint_id_vs, -1);
+    }
+    HSD_ForeachAnim(icon_jobj, JOBJ_TYPE, TOBJ_MASK, HSD_AObjReqAnim,
+                    AOBJ_ARG_AF, 10.0);
+    icons[icon_idx].anim_timer = 0xC;
+    lbAudioAx_80023870(icons[icon_idx].sfx, 0x7F, 0x40, icon_idx + 0x8A);
+    gm_80168C5C(icons[icon_idx].char_kind);
+    pc_agent_css_picked(door, icons[icon_idx].char_kind, n_pool);
+}
+#endif
+
 s32 mnCharSel_8025FDEC(u8 door)
 {
     CSSData* css;
@@ -3153,6 +3230,14 @@ void mnCharSel_CursorThink(HSD_GObj* gobj)
                                                         (u8) door, 1);
                                                 }
                                             }
+#ifdef TARGET_PC
+                                            if (mnCharSel_803F0DFC.doors[door]
+                                                    .p_kind == 0)
+                                            {
+                                                mnCharSel_PcAgentPick(
+                                                    (u8) door);
+                                            }
+#endif
                                             mnCharSel_8025DB34((u8) door);
                                             sfxMove();
                                             break;

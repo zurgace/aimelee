@@ -43,6 +43,12 @@ void pc_agent_post_tick(uint64_t proc_mask);
 bool pc_agent_slp_wanted(void);
 void pc_agent_slp_events(const uint8_t* data, size_t size, bool header);
 void pc_agent_slp_end(void);
+/* Character select (mncharsel.c): the CKinds a closed door opening as HMN
+ * picks among at random -- MELEE_AGENT_CSS_CHARS, a comma-separated list --
+ * for the agent's door while the bridge is on; 0 otherwise. Then the log
+ * line for the pick, `among` being how many were unlocked to pick from. */
+int pc_agent_css_chars(int door, uint8_t* out, int cap);
+void pc_agent_css_picked(int door, int ckind, int among);
 
 #ifdef __cplusplus
 }

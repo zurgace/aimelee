@@ -417,6 +417,76 @@ static void random_stages_restore(void) {
     s_random_on = false;
 }
 
+/* Character select: the characters opening the agent's door picks among. */
+static const char* const k_ckind_names[] = {
+    "Captain Falcon",
+    "Donkey Kong",
+    "Fox",
+    "Mr. Game & Watch",
+    "Kirby",
+    "Bowser",
+    "Link",
+    "Luigi",
+    "Mario",
+    "Marth",
+    "Mewtwo",
+    "Ness",
+    "Peach",
+    "Pikachu",
+    "Ice Climbers",
+    "Jigglypuff",
+    "Samus",
+    "Yoshi",
+    "Zelda",
+    "Sheik",
+    "Falco",
+    "Young Link",
+    "Dr. Mario",
+    "Roy",
+    "Pichu",
+    "Ganondorf",
+};
+#define CSS_MAX_CHARS 32
+
+static int s_css_count = -1; /* from the environment, on first use */
+static uint8_t s_css_chars[CSS_MAX_CHARS];
+
+static void css_chars_parse(void) {
+    s_css_count = 0;
+    const char* e = getenv("MELEE_AGENT_CSS_CHARS");
+    while (e != NULL && *e != '\0' && s_css_count < CSS_MAX_CHARS) {
+        char* end;
+        int32_t v = (int32_t)strtol(e, &end, 0);
+        if (end == e) {
+            break;
+        }
+        if (v >= 0 && v < (int32_t)(sizeof k_ckind_names / sizeof k_ckind_names[0])) {
+            s_css_chars[s_css_count++] = (uint8_t)v;
+        }
+        e = *end == ',' ? end + 1 : end;
+    }
+}
+
+int pc_agent_css_chars(int door, uint8_t* out, int cap) {
+    if (s_css_count < 0) {
+        css_chars_parse();
+    }
+    if (s_css_count == 0 || !usable() || door != s_port) {
+        return 0;
+    }
+    int n = s_css_count < cap ? s_css_count : cap;
+    memcpy(out, s_css_chars, (size_t)n);
+    return n;
+}
+
+void pc_agent_css_picked(int door, int ckind, int among) {
+    const char* name = ckind >= 0 && ckind < (int)(sizeof k_ckind_names / sizeof k_ckind_names[0]) ?
+                           k_ckind_names[ckind] :
+                           "?";
+    pc_log_line("agent: P%d opens as %s (random among the %d characters an AI plays)", door + 1,
+        name, among);
+}
+
 void pc_agent_pre_tick(void) {
     if (!usable()) {
         return;
