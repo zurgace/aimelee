@@ -116,7 +116,10 @@ By hand:
   - It happened on a SHA-1-verified GALE01 1.02 disc. Plain `./melee` on the same disc booted fine because the prewarm started later relative to the game's loads.
   - `MELEE_PREWARM=0` avoids it, and `play.py` sets it unless `MELEE_PREWARM` is already set.
   - Root cause not pinned down: every read goes through aurora's single DVD worker (per-file nod handles), so the collision is more likely in how the preload's completion interacts with the prewarm's synchronous reads. It's upstream melee-pc's, to be reported there.
-- **Results screen.** It waits for every plugged-in human port to press Start, and counts an unplugged port as ready (gmresultplayer.c). A second Start un-readies a port. So on `GS_RESULTS` the bridge skips its neutral fill-in: an agent port with no controller reads as unplugged, and one Start from the player moves on. A real controller on the agent port still has to press Start itself.
+- **Results screen.** It waits for every plugged-in human port to press Start, and counts an unplugged port as ready (gmresultplayer.c). A second Start un-readies a port.
+  - On `GS_RESULTS` the bridge forces the agent port to read unplugged (`PAD_ERR_NO_CONTROLLER`) in every queued pad sample, so one Start from the player moves on.
+  - It forces this whatever is attached. aurora reports a port as connected when an SDL gamepad holds that player slot, when keyboard bindings exist for it, or when an adapter slot publishes a virtual pad there. The first fix only skipped the neutral fill-in, so it did nothing on a machine where P2 was already claimed that way.
+  - It logs `agent: results screen: P2 reads as unplugged ...` once per screen, naming what the port had.
 - **Supported agents.** `delay12/MarthFD` (the predictive model) is a stretch goal. `delay18/*` weights are not in the phillip repo; they are on Google Drive.
 - **Out of scope.** Netplay, record/replay and synctest: the bridge refuses to arm under them.
 
