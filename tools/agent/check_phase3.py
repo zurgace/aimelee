@@ -133,7 +133,7 @@ def main():
     harness.require_disc(args)
     if not args.weights.exists():
         sys.exit(f"{args.weights} not found; export it first:\n  uv run --python 3.11 --with "
-                 "tensorflow-cpu==2.13.* --with attrs tools/agent/export_weights.py --phillip ../phillip "
+                 "'tensorflow-cpu==2.13.*' --with attrs tools/agent/export_weights.py --phillip ../phillip "
                  "--agent FalconFalconBF")
     ok = run(args).print()
     sys.exit(0 if ok else 1)

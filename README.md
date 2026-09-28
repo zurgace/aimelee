@@ -1,5 +1,9 @@
 # melee-pc
 
+> **AI-Melee.** This fork adds an agent bridge for playing offline against the
+> [Phillip](https://github.com/vladfi1/phillip) AI. Install and play:
+> [AI-Melee: play against Phillip](#ai-melee-play-against-phillip).
+
 **Beta, for testing only.** "melee-pc" is a working name. Online play with
 rollback netcode is in development. This branch includes LAN, internet friend
 codes, Unranked matchmaking and ranked best-of-three sets. See
@@ -216,7 +220,7 @@ per-device `.controller` files; everything else shares `launcher.cfg`.
 | `MELEE_UCF=1` | Universal Controller Fix (UCF 0.8x dashback and shield-drop rules); overrides the `ucf` launcher.cfg pref. |
 | `MELEE_GC_ADAPTER=0` | Hand the GameCube adapter (WUP-028) back to SDL's gamepad driver instead of reading it raw. |
 | `MELEE_SLP_DIR=<dir>` | Record every VS match, offline or netplay, as a Slippi replay `<dir>/Game_YYYYMMDDTHHMMSS.slp` (replay format 3.18.0) that Slippi Launcher, slippi-js stats, Clippi and overlays read. Only frames no rollback can change are written, so both netplay peers' files hold the same frames. Off by default. |
-| `MELEE_AGENT_SOCKET=<path>` | Agent bridge: listen on this AF_UNIX socket so an external agent (e.g. [Phillip](#playing-against-phillip-agent-bridge)) can watch the game and drive one port. Off by default; unset, nothing changes. |
+| `MELEE_AGENT_SOCKET=<path>` | Agent bridge: listen on this AF_UNIX socket so an external agent (e.g. [Phillip](#ai-melee-play-against-phillip)) can watch the game and drive one port. Off by default; unset, nothing changes. |
 | `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
 | `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
 | `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
@@ -237,39 +241,97 @@ Diagnostic knobs (`MELEE_DEBUG`, `MELEE_FPS`, `MELEE_HEAP_CHECK`, the
   attach the log (`melee-pc.log` on Windows, see
   [docs/debugging.md](docs/debugging.md#log-files)).
 
-## Playing against Phillip (agent bridge)
+## AI-Melee: play against Phillip
 
-An offline match against [Phillip](https://github.com/vladfi1/phillip), the
-deep-RL Melee agent. It is inference only: its trained networks run in numpy,
-and the game talks to them over a local socket instead of a patched Dolphin.
-The bridge is off unless `MELEE_AGENT_SOCKET` is set. It lives in `src/pc/agent_*`
-and hooks the existing per-tick `pc_net_sync` / `pc_slp_tick_end` calls, so
-no game code changes.
+AI-Melee is this fork of melee-pc. It adds an agent bridge so you can play an
+offline match against [Phillip](https://github.com/vladfi1/phillip), the
+deep-RL Melee agent.
 
-```sh
-git clone https://github.com/vladfi1/phillip ../phillip   # beside this checkout
-cmake -B build -G Ninja && ninja -C build
-sudo pacman -S python-numpy   # the agent's only dependency (or a venv: pip install numpy)
-python3 tools/agent/play.py --iso /path/to/GALE01.iso
+- **Inference only.** Phillip's trained networks run in numpy, and the game talks to them over a local socket instead of a patched Dolphin.
+- **Off by default.** The bridge is off unless `MELEE_AGENT_SOCKET` is set. It lives in `src/pc/agent_*` and hooks the existing per-tick `pc_net_sync` / `pc_slp_tick_end` calls, so no game code changes.
+
+**Assumptions.** These instructions assume:
+- **Linux.** Written for CachyOS/Arch, so package names are pacman's.
+- **The [fish](https://fishshell.com/) shell (3.1 or newer), run in a terminal such as [Alacritty](https://alacritty.org/).** Every command below is fish syntax; the two places where bash differs are noted.
+- **Your own disc.** A Melee NTSC-U 1.02 (GALE01) image.
+
+### Install
+
+1. **System packages** (once). Also install your GPU's Vulkan driver: `nvidia-utils` (NVIDIA), `vulkan-radeon` (AMD) or `vulkan-intel`. Most of these are already on a desktop install; `--needed` skips them.
+
+   ```fish
+   sudo pacman -S --needed base-devel git cmake ninja python python-numpy uv \
+       vulkan-icd-loader openssl curl libx11 libxext libxrandr libxcursor libxi \
+       libxfixes libxss libxkbcommon libxtst wayland wayland-protocols libdecor \
+       alsa-lib libpulse dbus systemd-libs
+   ```
+
+2. **AI-Melee and Phillip, side by side.** `play.py` looks for Phillip in `../phillip`.
+
+   ```fish
+   mkdir -p ~/src; and cd ~/src
+   git clone -b claude/eager-planck-jptjp9 https://github.com/zurgace/aimelee.git ai-melee
+   git clone https://github.com/vladfi1/phillip.git
+   ```
+
+   Already have a melee-pc clone? Add AI-Melee as a remote instead:
+   `git remote add aimelee https://github.com/zurgace/aimelee.git; and git fetch aimelee; and git switch -c ai-melee aimelee/claude/eager-planck-jptjp9`
+
+3. **Build.** The first configure downloads Dawn and a few libraries.
+
+   ```fish
+   cd ~/src/ai-melee
+   cmake -B build -G Ninja; and ninja -C build
+   ```
+
+4. **Point it at your disc.** A universal variable is remembered by every fish session, and every AI-Melee tool reads `MELEE_DISC`, so you can drop `--iso`. In bash, put `export MELEE_DISC=...` in `~/.bashrc` instead.
+
+   ```fish
+   set -Ux MELEE_DISC ~/Games/Melee/GALE01.iso
+   ```
+
+5. **Export the agent** (once per agent). This runs Phillip's checkpoint through TensorFlow 2.13 in a throwaway Python 3.11 environment managed by [uv](https://docs.astral.sh/uv/); it downloads about 200 MB the first time. After that, playing needs only numpy. `play.py` does this step by itself on the first run if you skip it.
+
+   ```fish
+   uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
+       tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF
+   ```
+
+   Keep the quotes around `tensorflow-cpu==2.13.*`. fish treats an unquoted `*` as a file glob and stops with "No matches for wildcard".
+
+6. **Optional: an `ai-melee` command.** Afterwards, `ai-melee`, `ai-melee --quick` or `ai-melee --agent delay0/FoxFD` work from any directory.
+
+   ```fish
+   function ai-melee --description 'Play Melee against Phillip (AI-Melee)'
+       python3 ~/src/ai-melee/tools/agent/play.py $argv
+   end
+   funcsave ai-melee
+   ```
+
+### Play
+
+```fish
+ai-melee          # or, from ~/src/ai-melee: python3 tools/agent/play.py
 ```
 
-The first run exports the agent's weights from Phillip's checkpoint with
-TensorFlow 2.13, in a throwaway Python 3.11 environment through
-[uv](https://docs.astral.sh/uv/). After that only numpy is needed.
+The game opens its own window, and the terminal keeps the agent's log: match start, matchup warnings, and latency and late-input counts when a match ends. Click the game window before you play: the keyboard only reaches the game while its window has focus.
 
 - **Set up the match.** The default agent, `FalconFalconBF`, plays Captain Falcon on P2 and was trained on Falcon vs Falcon on Battlefield.
   - Take P1 (keyboard, or a gamepad on port 1) and pick Captain Falcon.
   - P2 reads as plugged in. With P1's cursor, click P2's door to CPU, pick Captain Falcon for it, then click the door on to HMN.
   - Choose Battlefield.
-- **During the match.** The agent drives P2 from GO! and lets go when the match ends.
+- **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
 - **Quick start.** `--quick` skips the menus and boots straight into the agent's matchup.
 - **Other agents.** `--agent <name>` picks another agent. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
-- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync` and `--timeout-ms` are described in `play.py --help`.
+- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help`.
+- **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
+  - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee $MELEE_DISC` starts the game with the bridge on.
+  - `python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz` then plays P2, and `python3 tools/agent/dump_state.py` prints what the bridge exports. Run only one of the two: the bridge serves one client at a time.
 - **Performance.**
   - A network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
   - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
   - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
-- **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `dump_state.py` prints the live state; `inject_script.py` drives the agent port without any AI.
+- **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `inject_script.py` drives the agent port without any AI.
 
 ## Netplay (LAN and direct IP, prototype)
 

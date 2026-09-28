@@ -17,7 +17,7 @@ For each agent:
 Observations come from a synthetic trajectory, or from a recording made
 with dump_state.py --record on a real match (--record, --agent-port).
 
-    uv run --python 3.11 --with tensorflow-cpu==2.13.* --with attrs \\
+    uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \\
         tools/agent/verify_model.py --phillip ../phillip --agents FalconFalconBF delay0/FoxFD
 """
 

@@ -11,7 +11,7 @@ numpy side replays on every load.
 
 TF 2.13 needs Python 3.8-3.11; uv provides both without touching the system:
 
-    uv run --python 3.11 --with tensorflow-cpu==2.13.* --with attrs \\
+    uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \\
         tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF
 
 writes tools/agent/weights/FalconFalconBF.npz. --agent is a path under

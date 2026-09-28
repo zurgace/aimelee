@@ -75,32 +75,32 @@ The budget per tick is 16.7 ms, and the agent gets about one frame of slack anyw
 
 ## Checks to run on your machine
 
-The container can build and unit-test everything but cannot run the game (no disc, no GPU). Each check boots its own isolated run (a throwaway XDG_DATA_HOME, so your memory card is never touched) and prints PASS/FAIL per assertion. Paste the output back.
+The container can build and unit-test everything but cannot run the game (no disc, no GPU). Each check boots its own isolated run (a throwaway XDG_DATA_HOME, so your memory card is never touched) and prints PASS/FAIL per assertion. Paste the output back. The commands are fish syntax, as in the README; they also work in bash. They expect `MELEE_DISC` to be set (`set -Ux MELEE_DISC ~/path/to/GALE01.iso`, README step 4); otherwise add `--iso /path/to/GALE01.iso` to each.
 
-```sh
+```fish
 cmake -B build -G Ninja && ninja -C build
 git clone https://github.com/vladfi1/phillip ../phillip
 sudo pacman -S python-numpy uv
 
 # once: export the agent (TensorFlow 2.13 in a throwaway Python 3.11 via uv)
-uv run --python 3.11 --with tensorflow-cpu==2.13.* --with attrs \
+uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
     tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF
 
-python3 tools/agent/check_phase1.py --iso <disc>   # state export, cross-checked against the .slp recorder
-python3 tools/agent/check_phase2.py --iso <disc>   # injection on P2 while P1 plays, hits, disconnect
-python3 tools/agent/check_phase3.py --iso <disc>   # Phillip live: no late inputs, latency, kill -9, reconnect
-python3 tools/agent/check_vanilla.py --iso <disc> --upstream ../melee-pc-upstream/build/melee
+python3 tools/agent/check_phase1.py   # state export, cross-checked against the .slp recorder
+python3 tools/agent/check_phase2.py   # injection on P2 while P1 plays, hits, disconnect
+python3 tools/agent/check_phase3.py   # Phillip live: no late inputs, latency, kill -9, reconnect
+python3 tools/agent/check_vanilla.py --upstream ../melee-pc-upstream/build/melee
 
 # optional: check the numpy port against Phillip on a real match's observations
-python3 tools/agent/play.py --iso <disc> --record /tmp/match.bin   # records what the agent saw
-uv run --python 3.11 --with tensorflow-cpu==2.13.* --with attrs \
+python3 tools/agent/play.py --record /tmp/match.bin   # records what the agent saw
+uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
     tools/agent/verify_model.py --phillip ../phillip --record /tmp/match.bin --agent-port 2
 ```
 
 By hand:
 
-- **Play.** `python3 tools/agent/play.py --iso <disc>` (add `--quick` to skip the menus). This is the definition-of-done run: does Phillip play smoothly, and do the log's `agent: match over` / `agent: fight over` lines report 0 late inputs?
-- **Watch the state.** `python3 tools/agent/dump_state.py` prints it live, with the game started as `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee <disc>`.
+- **Play.** `python3 tools/agent/play.py` (or `ai-melee`; add `--quick` to skip the menus). This is the definition-of-done run: does Phillip play smoothly, and do the log's `agent: match over` / `agent: fight over` lines report 0 late inputs?
+- **Watch the state.** `python3 tools/agent/dump_state.py` prints it live, with the game started as `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee $MELEE_DISC`.
 - **Drive P2 without an AI.** `python3 tools/agent/inject_script.py` walks, hops, jabs and shields P2 while you play P1.
 - **CSS.** P2 should read as plugged in. Try P1's cursor on P2's door toggle: CPU → pick Falcon → toggle to HMN. Does the character stay selected?
 

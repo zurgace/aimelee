@@ -18,7 +18,7 @@ fits the checkpoint to the graph its params describe:
 Without TensorFlow only the params columns are shown.
 
     python3 tools/agent/list_agents.py --phillip ../phillip
-    uv run --python 3.11 --with tensorflow-cpu==2.13.* --with attrs \\
+    uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \\
         tools/agent/list_agents.py --phillip ../phillip --check
 """
 

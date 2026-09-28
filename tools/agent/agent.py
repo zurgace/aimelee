@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Play Phillip on the agent port of a running game (numpy only, no TF).
 
-    MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee <disc>     # terminal 1
+    MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee $MELEE_DISC     # terminal 1
     python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz
 
 (tools/agent/play.py starts both.) Export the weights once first with

@@ -3,7 +3,7 @@
 
 Start the game with the bridge on, then run this in another terminal:
 
-    MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee <disc.iso>
+    MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee $MELEE_DISC
     python3 tools/agent/dump_state.py --socket /tmp/melee-agent.sock
 
 It never sends input, so the game does not wait on it. The bridge serves
