@@ -106,6 +106,37 @@ The delay18 agents (6 steps, 18 frames; Puff 4) are only picked when they are th
 - **Export.** The first `play.py` run exports every roster agent in one TensorFlow process (`export_weights.py --agent A --agent B ...`, about 40 s in the container once TF is installed).
 - **Tests.** `tests/test_roster.py` covers the choices; `tests/test_agent_loop.py` plays Marth, Roy and Mario matches against a scripted game.
 
+## The newer Phillip (slippi-ai)
+
+**Why.** The bot on Slippi is `vladfi1/slippi-ai`: behaviour cloning on human Slippi replays, then self-play RL. The 2017 `vladfi1/phillip` agents are pure RL from 2017, mostly on Final Destination, and much weaker. The bridge reads every field from the offsets Phillip's memory watcher used, so the gap is the agents, not the bridge.
+
+**How it sees the game.**
+- With the bridge on, `slp.c` serializes every VS match, file or not. Each frame's events go out as `AGENT_MSG_SLP_EVENTS` just before that tick's STATE (protocol v2).
+- Offline, with the stream on, a frame is emitted at the end of its own tick rather than when the next begins; the bytes are the same.
+- The match header (Event Payloads + Game Start) is kept and re-sent to a client that connects mid-match.
+- `slippi_agent.py` feeds each message to libmelee's own event parser, a `melee.Console` given bytes instead of a Dolphin stream. It then runs slippi-ai's `Parser` and `eval_lib.Agent` unchanged, which is the same path the live bot takes from a Slippi console.
+- slippi-ai's controller output snaps to raw pad values (sticks ±80, L 0-140). `FakeController` maps them straight to the pad.
+- The agent steps once per game frame. A paused tick sends no frame, so the pad holds.
+- `console_delay` is 0: frame N's state yields the pad for tick N+1, as libmelee with Dolphin does.
+
+**Environment.** `slippi-requirements.txt` pins slippi-ai to commit `275c072`, plus the exact packages tested: tf-nightly 2.21.0.dev20260203, libmelee 0.47.3, wandb (imported when a TF model's config is upgraded). Python 3.12, CPU.
+
+**Verified in the container.** The model itself can't be downloaded here (Dropbox is blocked by the container's proxy).
+- libmelee parses a synthetic stream written by melee-pc's own serializer (`tests/data/slp_stream.bin`, from `tests/gen_slp_stream.c`): stage, characters, positions, percent, facing, jumps, shield and controller sticks.
+- slippi-ai's `Parser` accepts the result.
+- The live loop against a fake game: a random 3x512 model (slippi-ai's `create_model.py`) plays P2 as Falco, one reply per tick.
+- The classic fallback runs in the same process.
+- Step time of that random model on a 4-vCPU Xeon:
+
+  | Mode | p50 | p99 |
+  |---|---|---|
+  | sync | 7.4 ms | 10.4 ms |
+  | async, paced at 60 Hz | 0.2 ms | 8.9 ms |
+
+  So play uses `--async-inference`.
+
+**Unverified until run on a real machine:** medium-v2's characters and speed (`play.py` prints both on first use), and the stream from the real game.
+
 ## Checks to run on your machine
 
 The container can build and unit-test everything but cannot run the game (no disc, no GPU). Each check boots its own isolated run (a throwaway XDG_DATA_HOME, so your memory card is never touched) and prints PASS/FAIL per assertion. Paste the output back. The commands are fish syntax, as in the README; they also work in bash. They expect `MELEE_DISC` to be set (`set -Ux MELEE_DISC ~/path/to/GALE01.iso`, README step 4); otherwise add `--iso /path/to/GALE01.iso` to each.

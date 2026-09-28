@@ -245,10 +245,11 @@ Diagnostic knobs (`MELEE_DEBUG`, `MELEE_FPS`, `MELEE_HEAP_CHECK`, the
 ## AI-Melee: play against Phillip
 
 AI-Melee is this fork of melee-pc. It adds an agent bridge so you can play an
-offline match against [Phillip](https://github.com/vladfi1/phillip), the
-deep-RL Melee agent.
+offline match against Phillip, the Melee AI, in two generations:
 
-- **Inference only.** Phillip's trained networks run in numpy, and the game talks to them over a local socket (a Unix socket on Linux, loopback TCP on Windows) instead of a patched Dolphin.
+- **The newer Phillip ([slippi-ai](https://github.com/vladfi1/slippi-ai), MIT), used by default.** It's the bot you meet on Slippi: trained on human Slippi replays, then refined by self-play. It plays with 18+ frames of built-in reaction delay, like a human online. The game streams it the same Slippi replay events a Slippi console sends, and libmelee and slippi-ai read them with their own code.
+- **The original [Phillip](https://github.com/vladfi1/phillip) (2017, pure reinforcement learning), as the fallback.** Its trained networks run in numpy. It covers characters the slippi-ai model doesn't, or everyone with `--brain classic`.
+- **Inference only.** The game talks to the agent over a local socket (a Unix socket on Linux, loopback TCP on Windows) instead of a patched Dolphin.
 - **Off by default.** The bridge is off unless `MELEE_AGENT_SOCKET` is set. It lives in `src/pc/agent_*` and hooks the existing per-tick `pc_net_sync` / `pc_slp_tick_end` calls, so no game code changes.
 
 **On Windows?** Skip to [Windows 10](#windows-10): a download, no build.
@@ -319,7 +320,15 @@ ai-melee          # or, from ~/src/ai-melee: python3 tools/agent/play.py
 
 The game opens its own window, and the terminal keeps the agent's log: match start, matchup warnings, and latency and late-input counts when a match ends. Click the game window before you play: the keyboard only reaches the game while its window has focus.
 
-- **Set up the match.** Phillip plays P2 as whichever character you give it. On Final Destination a character gets its Final Destination agent, on any other stage its Battlefield agent, and a character with only one of the two uses it everywhere:
+- **Which Phillip plays.** On first use `ai-melee` sets up the newer Phillip:
+  - its own Python 3.12 environment (`tools/agent/slippi-env`, about 2.5 GB, a while to download);
+  - the "medium-v2" model from slippi-ai's Dropbox.
+
+  It then times one model step on your machine and prints the characters the model plays. slippi-ai plays every character its model covers. For any other character, the 2017 agents below play P2.
+  - `--brain classic` always uses the 2017 agents; `--brain slippi` only slippi-ai.
+  - `--slippi-model <file>` uses another model from [slippi-ai's released models](https://www.dropbox.com/scl/fo/mg916t9exid4stqmx2bjf/AD2oysY7SbTa6N0u7j75-SA?rlkey=baqxnfxg2uytvcz62w9o8mwzt&st=eil5kcql&dl=0).
+  - If the download fails, save medium-v2 as `tools/agent/weights/slippi/medium-v2` yourself.
+- **Set up the match.** With the 2017 agents, P2 is played as whichever character you give it. On Final Destination a character gets its Final Destination agent, on any other stage its Battlefield agent, and a character with only one of the two uses it everywhere:
 
   | P2's character | Final Destination agent | Battlefield agent |
   |---|---|---|
@@ -339,12 +348,13 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
 - **More agents.** The `delay18` agents are not in Phillip's repo; they're in the "full set of trained agents" zip linked from [Phillip's README](https://github.com/vladfi1/phillip#readme) (Google Drive). Phillip's author calls `delay18/FalcoBF` the best human-like agent. Put each one's files (`params`, `snapshot*`) in `../phillip/agents/delay18/<name>/`, and the next `ai-melee` converts and uses them. They react 18 frames late (12 for Puff), by design.
 - **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
 - **One agent for everyone.** `--agent <name>` plays that one agent whatever P2 picks, as before. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
-- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help`.
+- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help` (`--delay`, `--frame-lag` and `--record` apply to the 2017 agents).
 - **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
   - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock MELEE_PREWARM=0 build/melee $MELEE_DISC` starts the game with the bridge on. `MELEE_PREWARM=0`, which `play.py` sets for you, avoids a boot-time crash in melee-pc's background disc prewarm ("HSD_ArchiveParse: byte-order mismatch"; see NOTES).
   - `python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz` then plays P2, and `python3 tools/agent/dump_state.py` prints what the bridge exports. Run only one of the two: the bridge serves one client at a time.
 - **Performance.**
-  - A network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
+  - slippi-ai runs on the CPU on a worker thread. Its reaction delay hides the compute, so a reply normally takes well under a millisecond. The first-run timing, kept in `tools/agent/weights/slippi/*.probe.txt`, shows your machine's numbers.
+  - A 2017 agent's network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
   - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
   - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
 - **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `inject_script.py` drives the agent port without any AI.
