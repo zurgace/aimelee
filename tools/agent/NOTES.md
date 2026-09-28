@@ -113,4 +113,14 @@ By hand:
 - **`character`** (used only by agents with `omit_char=false`) was the CSS door's `sel_icon` byte in Phillip. The door static is not reachable from `src/pc`, so we derive the icon from the CKind. Sheik maps to the Zelda icon, as she did on the CSS.
 - **Spawns.** Phillip's Dolphin ran the "Netplay Community Settings" Gecko code, which includes neutral spawns and other rule changes; we run vanilla. Only the starting positions differ.
 - **Supported agents.** `delay12/MarthFD` (the predictive model) is a stretch goal. `delay18/*` weights are not in the phillip repo; they are on Google Drive.
-- **Out of scope.** Netplay, record/replay and synctest: the bridge refuses to arm under them. Windows builds compile the bridge out in v1.
+- **Out of scope.** Netplay, record/replay and synctest: the bridge refuses to arm under them.
+
+## Windows
+
+- **Transport.** Windows' Python has no AF_UNIX, so the bridge also listens on loopback TCP: `MELEE_AGENT_SOCKET=tcp:127.0.0.1:<port>` or `tcp:<port>`, on every platform. It binds 127.0.0.1 only and refuses any other host, because whoever connects drives a port. `play.py` uses TCP on Windows, or with `--tcp`, and picks a free port. Framing, stale inputs, degraded mode and disconnects are unchanged. `TCP_NODELAY` is on at both ends. The address port uses `SO_EXCLUSIVEADDRUSE` on Windows and `SO_REUSEADDR` elsewhere.
+- **Tests.**
+  - `tools/test_agent_link.c` runs its whole suite twice, over AF_UNIX and over TCP, and checks that non-loopback and malformed addresses are refused.
+  - `tests/test_bridge_proto.py` runs the fake game over both transports.
+  - `agent_link.c`, `agent_bridge.c` and `fake_game.c` cross-compile with mingw-w64 (with the game's flags for the first two). Under Wine 9, the Windows `fake_game.exe` passes the TCP protocol tests against the Linux `bridge.py`. It also refuses a path address with a pointer to the TCP form.
+- **Package.** `.github/workflows/ai-melee-windows.yml` builds upstream's Windows zip (`tools/package_windows.sh`) and adds the agent (`package_windows_agent.sh`): `ai-melee/` with the Python tools, `Play AI-Melee.bat` and `README-AI-Melee.txt`. An `ai-melee-v*` tag publishes it as a Release. The full game couldn't be cross-built in the development container: sqlite.org and the freetype mirror are blocked there, so CI makes the first full build.
+- **Unverified.** Nobody has played it on real Windows yet, including the tkinter disc picker, uv's TensorFlow export on Windows (`tensorflow-cpu` 2.13.1 has a cp311 win_amd64 wheel) and Ctrl-C handling in the console.

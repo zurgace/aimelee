@@ -1,8 +1,8 @@
 # melee-pc
 
 > **AI-Melee.** This fork adds an agent bridge for playing offline against the
-> [Phillip](https://github.com/vladfi1/phillip) AI. Install and play:
-> [AI-Melee: play against Phillip](#ai-melee-play-against-phillip).
+> [Phillip](https://github.com/vladfi1/phillip) AI. Install and play on
+> [Linux](#ai-melee-play-against-phillip) or [Windows 10/11](#windows-10).
 
 **Beta, for testing only.** "melee-pc" is a working name. Online play with
 rollback netcode is in development. This branch includes LAN, internet friend
@@ -220,7 +220,7 @@ per-device `.controller` files; everything else shares `launcher.cfg`.
 | `MELEE_UCF=1` | Universal Controller Fix (UCF 0.8x dashback and shield-drop rules); overrides the `ucf` launcher.cfg pref. |
 | `MELEE_GC_ADAPTER=0` | Hand the GameCube adapter (WUP-028) back to SDL's gamepad driver instead of reading it raw. |
 | `MELEE_SLP_DIR=<dir>` | Record every VS match, offline or netplay, as a Slippi replay `<dir>/Game_YYYYMMDDTHHMMSS.slp` (replay format 3.18.0) that Slippi Launcher, slippi-js stats, Clippi and overlays read. Only frames no rollback can change are written, so both netplay peers' files hold the same frames. Off by default. |
-| `MELEE_AGENT_SOCKET=<path>` | Agent bridge: listen on this AF_UNIX socket so an external agent (e.g. [Phillip](#ai-melee-play-against-phillip)) can watch the game and drive one port. Off by default; unset, nothing changes. |
+| `MELEE_AGENT_SOCKET=<path>` or `tcp:127.0.0.1:<port>` | Agent bridge: listen on this AF_UNIX socket (or TCP port on the loopback interface only; Windows accepts only the TCP form) so an external agent (e.g. [Phillip](#ai-melee-play-against-phillip)) can watch the game and drive one port. Off by default; unset, nothing changes. |
 | `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
 | `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
 | `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
@@ -247,10 +247,12 @@ AI-Melee is this fork of melee-pc. It adds an agent bridge so you can play an
 offline match against [Phillip](https://github.com/vladfi1/phillip), the
 deep-RL Melee agent.
 
-- **Inference only.** Phillip's trained networks run in numpy, and the game talks to them over a local socket instead of a patched Dolphin.
+- **Inference only.** Phillip's trained networks run in numpy, and the game talks to them over a local socket (a Unix socket on Linux, loopback TCP on Windows) instead of a patched Dolphin.
 - **Off by default.** The bridge is off unless `MELEE_AGENT_SOCKET` is set. It lives in `src/pc/agent_*` and hooks the existing per-tick `pc_net_sync` / `pc_slp_tick_end` calls, so no game code changes.
 
-**Assumptions.** These instructions assume:
+**On Windows?** Skip to [Windows 10](#windows-10): a download, no build.
+
+**Assumptions.** The Linux instructions assume:
 - **Linux.** Written for CachyOS/Arch, so package names are pacman's.
 - **The [fish](https://fishshell.com/) shell (3.1 or newer), run in a terminal such as [Alacritty](https://alacritty.org/).** Every command below is fish syntax; the two places where bash differs are noted.
 - **Your own disc.** A Melee NTSC-U 1.02 (GALE01) image.
@@ -332,6 +334,75 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
   - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
   - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
 - **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `inject_script.py` drives the agent port without any AI.
+
+### Windows 10
+
+For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You download a ready-made build and nothing is compiled. Everything below is typed in PowerShell or done by clicking.
+
+**What you need.**
+- **Windows 10 or 11, 64-bit,** with an up-to-date graphics driver (NVIDIA, AMD or Intel). The game draws with Direct3D 12; see [Requirements](#requirements).
+- **Your Melee disc image:** NTSC-U 1.02 (GALE01), usually a `.iso` file.
+- **About 2 GB of free disk space and an internet connection** for the first run. Later runs work offline.
+
+**What gets installed.**
+- **Python 3.12**, which runs the AI.
+- **Two Python packages:**
+  - `numpy` runs Phillip's network.
+  - `uv` converts Phillip's saved network once, using a temporary copy of Python 3.11 and TensorFlow 2.13 that it downloads and manages itself.
+- **The AI-Melee download** (the game plus the AI scripts) and **Phillip's source**, which holds the trained agents.
+
+1. **Install Python 3.12.** Download the "Windows installer (64-bit)" from [python.org/downloads](https://www.python.org/downloads/windows/). In the installer's first screen tick **Add python.exe to PATH**, then click **Install Now**. Alternatively, in PowerShell:
+
+   ```powershell
+   winget install Python.Python.3.12
+   ```
+
+2. **Install the Python packages.** Open PowerShell (Start menu, type `powershell`, Enter) and run:
+
+   ```powershell
+   py -m pip install numpy uv
+   ```
+
+   pip may warn that a Scripts folder "is not on PATH". You can ignore that: AI-Melee finds uv either way.
+
+3. **Download AI-Melee.**
+   - Open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release.
+   - Right-click the zip, choose **Extract All...**, and extract it to a folder you own, for example `C:\Games`.
+   - You get a folder `AI-Melee` containing `melee.exe`, `Play AI-Melee.bat` and an `ai-melee` folder. Don't put it under `C:\Program Files`: the AI saves files next to itself.
+
+4. **Download Phillip.**
+   - On [github.com/vladfi1/phillip](https://github.com/vladfi1/phillip), click the green **Code** button, then **Download ZIP**.
+   - Extract that zip into the `AI-Melee` folder, so it contains a `phillip-master` folder. `phillip-master\phillip-master` from Extract All is fine too.
+
+5. **Play.** Double-click `Play AI-Melee.bat` in the `AI-Melee` folder.
+   - **First run only:** a window asks for your disc image (it may open behind the console), and the choice is remembered.
+   - **Then a one-time conversion:** it downloads TensorFlow once (about 250 MB) and converts Phillip's network. This takes a few minutes; later starts take seconds.
+   - **Then the game opens.** The console window stays open with the AI's log.
+
+6. **In the game.**
+   - Click the game window so it gets the keyboard.
+   - Set up the match as in [Play](#play): you are P1 on Captain Falcon; switch P2 to CPU, pick Captain Falcon, switch back to HMN; choose Battlefield.
+   - Close the game window to stop.
+
+**Options.** `Play AI-Melee.bat` passes its arguments to `play.py`. In PowerShell, from the `AI-Melee` folder:
+
+```powershell
+& '.\Play AI-Melee.bat' --quick                # skip the menus
+& '.\Play AI-Melee.bat' --agent delay0/FoxFD   # another agent
+py ai-melee\play.py --help                     # every option
+py ai-melee\list_agents.py --phillip phillip-master   # the agents and their matchups
+```
+
+**Troubleshooting.**
+- **"Windows protected your PC"** (SmartScreen) when starting `melee.exe`: the build is not code-signed. Click **More info**, then **Run anyway**.
+- **"Python was not found"** or **`py` is not recognized**: re-run the Python installer, choose **Modify**, and make sure **py launcher** and **Add Python to environment variables** are ticked.
+- **"the agent needs numpy"** or **"that needs uv"**: run step 2 again.
+- **"cannot find Phillip's agent"**: the message lists where it looked. Check that `phillip-master\agents` exists inside `AI-Melee`, or pass `--phillip <folder>`.
+- **A Windows Firewall prompt for melee.exe**: the AI connection only listens on 127.0.0.1 (this computer only), which the firewall doesn't block, so either answer works for AI-Melee. Netplay needs it allowed.
+- **The game doesn't start or shows a black window**: update your graphics driver, then double-click `RUN-AND-LOG.bat` and read `melee-pc.log`. The [project site](https://999sian.github.io/melee-pc/) FAQ covers first-run problems.
+- **Wrong disc remembered**: delete `ai-melee\settings.json`, or pass `--iso <path>`.
+
+The Windows build is made by this fork's [release workflow](.github/workflows/ai-melee-windows.yml) and has not yet been played on a real Windows machine. The bridge's Windows networking is tested under Wine. Please [open an issue](https://github.com/zurgace/aimelee/issues) with the console output if something goes wrong.
 
 ## Netplay (LAN and direct IP, prototype)
 
