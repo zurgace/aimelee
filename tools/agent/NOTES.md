@@ -42,6 +42,18 @@ plan it started from is [PLAN.md](PLAN.md); where the two disagree, this file is
 - **Network gaps are float32 noise.** TF's float32 result is as far from a float64 evaluation as numpy's is (the verifier prints both), and the gap only shows on extreme random inputs; the median is ~1e-39. Tolerance is 5e-4 on probabilities. A layer mix-up or broken file shows up at 1e-2 or more; the loader replays 16 reference cases from the export on every start.
 - **Pipeline** covers the delay queue, action chains, memory, banned rules and numpy's `choice`: the recorded pad-command text matches Phillip's `Pad.send_controller` output exactly.
 
+## Latency (container, 2.1 GHz Xeon vCPU, numpy 2.5, single-threaded BLAS)
+
+Per network step: observation → Agent.act → pad. Chain-only frames cost ~6 µs.
+
+| Agent | p50 | p99 | max |
+|---|---|---|---|
+| FalconFalconBF | 141 µs | 311 µs | 1.8 ms |
+| delay0/FoxFD | 292 µs | 701 µs | 3.1 ms |
+| SheikFD2 | 527 µs | 1.0 ms | 3.7 ms |
+
+The budget per tick is 16.7 ms, and the agent gets about one frame of slack anyway: the state goes out right after the tick's logic, and the game only waits for the input after rendering and pacing. With the default BLAS thread count, FalconFalconBF's p99 was 420 µs and its max 3.4 ms, so `agent.py` pins BLAS to one thread. `check_phase3.py` measures the real numbers on your machine, including tick-to-tick wall time.
+
 ## Agents
 
 `list_agents.py --check` (TF oracle) lists the matchup each agent expects:

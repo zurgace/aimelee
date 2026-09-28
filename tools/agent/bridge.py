@@ -322,6 +322,8 @@ def read_record(path):
     """Yield the States of a recording."""
     with open(path, "rb") as f:
         head = f.read(RECORD_HEADER.size)
+        if len(head) < RECORD_HEADER.size:
+            return  # empty: the recorder was killed before writing anything
         magic, version, size, _ = RECORD_HEADER.unpack(head)
         if magic != RECORD_MAGIC or size != STATE_SIZE:
             raise ValueError(f"{path}: not a v{PROTO_VERSION} bridge recording")
