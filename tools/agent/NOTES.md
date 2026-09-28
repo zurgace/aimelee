@@ -38,6 +38,13 @@ plan it started from is [PLAN.md](PLAN.md); where the two disagree, this file is
 | SheikFD2 | 1.0e-4 | 2400/2400 | 2400/2400 |
 | PeachFD1 | 1.0e-4 | 2400/2400 | 2400/2400 |
 | MarthFD0 | 2.4e-4 | 2400/2400 | 2400/2400 |
+| MarthFD1 | 7.9e-5 | 2400/2400 | 2400/2400 |
+| PeachFD | 3.3e-5 | 2400/2400 | 2400/2400 |
+| PeachFD2 | 1.8e-4 | 2400/2400 | 2400/2400 |
+| SheikFD | 9.3e-5 | 2400/2400 | 2400/2400 |
+| SheikFD1 | 8.3e-5 | 2400/2400 | 2400/2400 |
+
+Every agent the roster can pick is in this table.
 
 - **Network gaps are float32 noise.** TF's float32 result is as far from a float64 evaluation as numpy's is (the verifier prints both), and the gap only shows on extreme random inputs; the median is ~1e-39. Tolerance is 5e-4 on probabilities. A layer mix-up or broken file shows up at 1e-2 or more; the loader replays 16 reference cases from the export on every start.
 - **Pipeline** covers the delay queue, action chains, memory, banned rules and numpy's `choice`: the recorded pad-command text matches Phillip's `Pad.send_controller` output exactly.
@@ -72,6 +79,28 @@ The budget per tick is 16.7 ms, and the agent gets about one frame of slack anyw
 
 - **FoxFD1's params do not describe its checkpoint.** It was trained with a 64-wide action-state FC (`weight [383,64]` is in the checkpoint), but its params omit `action_space`. Phillip builds the net without the FC, leaves those weights unused and zero-pads the first actor layer from 840 to 2808 rows. So Phillip itself runs FoxFD1 with misaligned weights, and so do we. Fixing it would mean overriding its params (`action_space: 64`), which is a deviation from Phillip.
 - **delay12/MarthFD** (predictive model) does not build under Phillip's own code at HEAD (a shape error in its `Model.predict` loop), so there is no oracle to check a port against.
+
+## Roster: the agent follows P2's character
+
+`play.py` (without `--agent`) writes `weights/roster.json` from `roster.py`, and `agent.py --roster` picks the agent at each match start from the agent port's CKind. The pick happens on the first tick the fighter is in the state, inside the 120-frame warm-up.
+
+| P2's character | Agent (default) | `--reaction 1` | `--reaction 2` |
+|---|---|---|---|
+| Captain Falcon | FalconFalconBF | same | same |
+| Fox | delay0/FoxFD | same (FoxFD1 excluded) | same |
+| Falco | delay0/FalcoFD | same | same |
+| Marth | MarthFD0 | MarthFD1 | MarthFD1 |
+| Peach | PeachFD | PeachFD1 | PeachFD2 |
+| Sheik | SheikFD | SheikFD1 | SheikFD2 |
+| Jigglypuff | delay18/PuffFD, only with its weights from Google Drive | same | same |
+| Ganondorf | Falcon's agent as a stand-in | | |
+| Roy | Marth's agent as a stand-in | | |
+| anyone else | none: the port is released for the match | | |
+
+- **Stand-ins.** The agent keeps its own character for the banned-action rules. The agent port's `character` observation is set to the agent's own character, since the network was only trained on it; FalconFalconBF ignores the character input anyway.
+- **No agent.** The agent logs which characters are covered and releases the port for the match. P2 stands still, or a controller on P2 plays it.
+- **Export.** The first `play.py` run exports every roster agent in one TensorFlow process (`export_weights.py --agent A --agent B ...`, about 40 s in the container once TF is installed).
+- **Tests.** `tests/test_roster.py` covers the choices; `tests/test_agent_loop.py` plays Marth, Roy and Mario matches against a scripted game.
 
 ## Checks to run on your machine
 

@@ -292,11 +292,11 @@ deep-RL Melee agent.
    set -Ux MELEE_DISC ~/Games/Melee/GALE01.iso
    ```
 
-5. **Export the agent** (once per agent). This runs Phillip's checkpoint through TensorFlow 2.13 in a throwaway Python 3.11 environment managed by [uv](https://docs.astral.sh/uv/); it downloads about 200 MB the first time. After that, playing needs only numpy. `play.py` does this step by itself on the first run if you skip it.
+5. **Export the agents** (once). This runs Phillip's checkpoints through TensorFlow 2.13 in a throwaway Python 3.11 environment managed by [uv](https://docs.astral.sh/uv/); it downloads about 200 MB the first time. After that, playing needs only numpy. `play.py` does this step by itself on the first run (every agent it uses, in one go) if you skip it. By hand, repeat `--agent` for each one:
 
    ```fish
    uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
-       tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF
+       tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF --agent delay0/FoxFD
    ```
 
    Keep the quotes around `tensorflow-cpu==2.13.*`. fish treats an unquoted `*` as a file glob and stops with "No matches for wildcard".
@@ -318,14 +318,24 @@ ai-melee          # or, from ~/src/ai-melee: python3 tools/agent/play.py
 
 The game opens its own window, and the terminal keeps the agent's log: match start, matchup warnings, and latency and late-input counts when a match ends. Click the game window before you play: the keyboard only reaches the game while its window has focus.
 
-- **Set up the match.** The default agent, `FalconFalconBF`, plays Captain Falcon on P2 and was trained on Falcon vs Falcon on Battlefield.
-  - Take P1 (keyboard, or a gamepad on port 1) and pick Captain Falcon.
-  - P2 reads as plugged in. With P1's cursor, click P2's door to CPU, pick Captain Falcon for it, then click the door on to HMN.
-  - Choose Battlefield.
+- **Set up the match.** Phillip plays P2 as whichever character you give it:
+
+  | P2's character | Phillip agent | Trained on |
+  |---|---|---|
+  | Captain Falcon | FalconFalconBF | Battlefield, vs Falcon |
+  | Fox, Falco, Marth, Peach, Sheik | their own agent | Final Destination |
+  | Ganondorf, Roy | Falcon's or Marth's agent stands in (clones) | as above |
+  | Jigglypuff | only with the `delay18` weights from Phillip's Google Drive | Final Destination |
+  | anyone else | none: P2 stands still, so set P2 to CPU instead | |
+
+  - Take P1 (keyboard, or a gamepad on port 1) and pick your character.
+  - P2 reads as plugged in. With P1's cursor, click P2's door to CPU, pick P2's character, then click the door on to HMN. For Sheik, pick Zelda and hold A as the match loads.
+  - Choose a stage: Final Destination for every agent except Falcon's (Battlefield). The terminal names the agent at each match start.
 - **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
 - **After the match.** P2 counts as ready on the results screen, so press Start once and you're back at the character select, with P2 still seated.
-- **Quick start.** `--quick` skips the menus and boots straight into the agent's matchup.
-- **Other agents.** `--agent <name>` picks another agent. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
+- **Quick start.** `--quick` skips the menus and boots straight into a Falcon vs Falcon match on Battlefield, or into `--agent`'s matchup.
+- **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
+- **One agent for everyone.** `--agent <name>` plays that one agent whatever P2 picks, as before. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
 - **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help`.
 - **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
   - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock MELEE_PREWARM=0 build/melee $MELEE_DISC` starts the game with the bridge on. `MELEE_PREWARM=0`, which `play.py` sets for you, avoids a boot-time crash in melee-pc's background disc prewarm ("HSD_ArchiveParse: byte-order mismatch"; see NOTES).
@@ -377,12 +387,12 @@ For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You dow
 
 5. **Play.** Double-click `Play AI-Melee.bat` in the `AI-Melee` folder.
    - **First run only:** a window asks for your disc image (it may open behind the console), and the choice is remembered.
-   - **Then a one-time conversion:** it downloads TensorFlow once (about 250 MB) and converts Phillip's network. This takes a few minutes; later starts take seconds.
+   - **Then a one-time conversion:** it downloads TensorFlow once (about 250 MB) and converts Phillip's agents. This takes a few minutes; later starts take seconds.
    - **Then the game opens.** The console window stays open with the AI's log.
 
 6. **In the game.**
    - Click the game window so it gets the keyboard.
-   - Set up the match as in [Play](#play): you are P1 on Captain Falcon; switch P2 to CPU, pick Captain Falcon, switch back to HMN; choose Battlefield.
+   - Set up the match as in [Play](#play): you are P1; switch P2 to CPU, pick Falcon, Fox, Falco, Marth, Peach or Sheik for it, switch back to HMN; choose Final Destination (Battlefield for Falcon).
    - Close the game window to stop.
 
 **Options.** `Play AI-Melee.bat` passes its arguments to `play.py`. In PowerShell, from the `AI-Melee` folder:

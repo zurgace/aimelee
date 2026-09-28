@@ -29,10 +29,13 @@ Double-click "Play AI-Melee.bat".
 - The first time, a window asks for your disc image; the choice is
   remembered. Then it downloads TensorFlow once (about 250 MB, a few
   minutes) to convert Phillip's network. Later starts take seconds.
-- In the game: take P1 (keyboard, or a controller) and pick Captain Falcon.
+- In the game: take P1 (keyboard, or a controller) and pick anyone.
   P2 shows as plugged in: with P1's cursor click P2's door to CPU, pick
-  Captain Falcon for it, then click the door on to HMN. Choose Battlefield.
-  Phillip plays P2 from GO! until the match ends.
+  Captain Falcon, Fox, Falco, Marth, Peach or Sheik for it (Ganondorf and
+  Roy borrow Falcon's and Marth's agents), then click the door on to HMN.
+  Choose Final Destination (Battlefield for Falcon). Phillip plays P2 from
+  GO! until the match ends; press Start on the results screen to go on.
+  Other characters have no Phillip agent: set P2 to CPU for those.
 - Click the game window before playing so it gets the keyboard.
 - Close the game window, or press Ctrl-C in the black console window, to
   stop.

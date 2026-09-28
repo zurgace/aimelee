@@ -5,10 +5,13 @@
     py ai-melee\\play.py                      # Windows, from the AI-Melee folder
                                              # (or double-click Play AI-Melee.bat)
 
-That plays FalconFalconBF on P2: pick Captain Falcon for yourself (P1, the
-keyboard, or a gamepad on port 1), set P2 to HMN Captain Falcon (P2 reads as
-plugged in; with P1's cursor: toggle P2's door to CPU, pick Falcon, toggle
-on to HMN), choose Battlefield, and play. The agent takes P2 once the match
+Phillip plays P2 as whichever character P2 has: Captain Falcon, Fox, Falco,
+Marth, Peach or Sheik get their own agent, Ganondorf and Roy borrow
+Falcon's and Marth's, anything else stands still (set it to CPU instead).
+Take P1 (the keyboard, or a gamepad on port 1), set P2 to HMN and pick its
+character (P2 reads as plugged in; with P1's cursor: toggle P2's door to
+CPU, pick the character, toggle on to HMN), choose a stage (most agents
+trained on Final Destination), and play. The agent takes P2 once the match
 starts and lets go when it ends. On the results screen P2 counts as ready,
 so one Start takes you back to the character select. The game never waits on
 the agent for more than the timeout, and carries on if it dies (play.py
@@ -21,22 +24,25 @@ What it finds by itself:
                 inside the AI-Melee folder (--phillip)
   your disc     --iso, else $MELEE_DISC, else the one picked last time, else
                 a file dialog asks (the choice is kept in settings.json)
-  the weights   exported from Phillip's checkpoint on first use with
-                TensorFlow 2.13 through uv (a throwaway Python 3.11); after
-                that only numpy is needed
+  the weights   every agent's, exported from Phillip's checkpoints on first
+                use with TensorFlow 2.13 through uv (a throwaway Python
+                3.11); after that only numpy is needed
 
 Options:
-  --agent NAME       any agent under <phillip>/agents (default FalconFalconBF);
-                     list them with list_agents.py
+  --reaction N       0 (default): each character's strongest agent; 1 or 2:
+                     prefer agents trained to react 3 or 6 frames late, where
+                     they exist (Marth, Peach, Sheik)
+  --agent NAME       play this one agent whatever P2 picks (any agent under
+                     <phillip>/agents; list them with list_agents.py)
   --port N           the port the agent plays (1-4, default 2)
-  --delay N          run the agent with N network steps of action delay, as
-                     Phillip's --delay did (its weights are padded to fit)
+  --delay N          with --agent: run it with N network steps of action
+                     delay, as Phillip's --delay did (its weights are padded)
   --epsilon E        random-action rate (default 0, as Phillip's README plays)
   --sync MODE        lockstep (default) or async
   --timeout-ms MS    lockstep wait per tick (default 4)
   --frame-lag K      hold each pad K extra ticks (emulate a slower pipe)
-  --quick            skip the menus: boot straight into the agent's matchup
-                     (debug VS, both ports human, the agent's stage)
+  --quick            skip the menus: boot straight into a Falcon match (or
+                     --agent's matchup): debug VS, both ports human
   --record FILE      record every state the agent sees (dump_state format;
                      verify_model.py --record replays it through Phillip)
   --tcp              use loopback TCP instead of a Unix socket (always on
@@ -71,6 +77,7 @@ sys.path.insert(0, str(HERE))
 
 import bridge  # noqa: E402
 import phillip_obs  # noqa: E402  (no numpy needed at import)
+import roster  # noqa: E402
 
 UV_EXPORT = ["--python", "3.11", "--with", "tensorflow-cpu==2.13.*", "--with", "attrs"]
 PIP = "py -m pip install" if WINDOWS else "python3 -m pip install"
@@ -170,26 +177,50 @@ def weights_path(agent, delay):
     return HERE / "weights" / f"{stem}.npz"
 
 
-def ensure_weights(args):
-    out = weights_path(args.agent, args.delay)
-    if out.exists():
-        return out
-    cmd = [str(HERE / "export_weights.py"), "--phillip", str(args.phillip), "--agent", args.agent,
-           "--out", str(out)]
-    if args.delay is not None:
-        cmd += ["--delay", str(args.delay)]
+def export(agents, phillip, delay=None, out=None):
+    """Export these agents' weights in one TensorFlow run."""
+    cmd = [str(HERE / "export_weights.py"), "--phillip", str(phillip)]
+    for a in agents:
+        cmd += ["--agent", a]
+    if out is not None:
+        cmd += ["--out", str(out)]
+    if delay is not None:
+        cmd += ["--delay", str(delay)]
     uv = uv_command()
     if uv is None:
-        fail(f"the agent's weights are not exported yet, and that needs uv: {PIP} uv"
+        fail(f"the agents' weights are not exported yet, and that needs uv: {PIP} uv"
              + ("" if WINDOWS else "  (Arch/CachyOS: sudo pacman -S uv)"))
-    print(f"play: exporting {args.agent} from Phillip's checkpoint with TensorFlow 2.13.\n"
+    print(f"play: exporting {', '.join(agents)} from Phillip's checkpoints with TensorFlow 2.13.\n"
           "      First run only: uv downloads Python 3.11 and TensorFlow (~250 MB), "
           "which takes a few minutes ...", flush=True)
     try:
         subprocess.run([*uv, "run", *UV_EXPORT, *cmd], check=True)
     except subprocess.CalledProcessError:
         fail("the export failed (see above). Check your internet connection and run play again.")
+
+
+def ensure_weights(args):
+    out = weights_path(args.agent, args.delay)
+    if not out.exists():
+        export([args.agent], args.phillip, args.delay, out)
     return out
+
+
+def ensure_roster(args):
+    """Export whatever the roster lacks, write the roster file, return its path."""
+    chosen, skipped = roster.choose(args.phillip, args.reaction)
+    if not chosen:
+        fail(f"no usable agents in {args.phillip}/agents")
+    missing = [a for a in chosen.values() if not weights_path(a, None).exists()]
+    if missing:
+        export(missing, args.phillip)
+    path = HERE / "weights" / "roster.json"
+    path.parent.mkdir(exist_ok=True)
+    roster.write(path, chosen, lambda a: weights_path(a, None))
+    print(f"play: agents: {roster.summary(chosen)}", flush=True)
+    for agent, why in skipped:
+        print(f"play: not using {agent}: {why}", flush=True)
+    return path
 
 
 def agent_params(phillip, agent):
@@ -204,7 +235,8 @@ def main():
     ap.add_argument("--iso", help="your NTSC-U 1.02 disc image")
     ap.add_argument("--melee", help="the game binary (found automatically)")
     ap.add_argument("--phillip", help="phillip checkout (found automatically)")
-    ap.add_argument("--agent", default="FalconFalconBF")
+    ap.add_argument("--agent", help="one agent for every character (default: the roster)")
+    ap.add_argument("--reaction", type=int, default=0, choices=[0, 1, 2])
     ap.add_argument("--port", type=int, default=2, choices=[1, 2, 3, 4])
     ap.add_argument("--delay", type=int)
     ap.add_argument("--epsilon", type=float, default=0.0)
@@ -224,11 +256,16 @@ def main():
     except ImportError:
         fail(f"the agent needs numpy: {PIP} numpy"
              + ("" if WINDOWS else "  (Arch/CachyOS: sudo pacman -S python-numpy)"))
+    if args.delay is not None and args.agent is None:
+        fail("--delay applies to one agent: give --agent with it")
     settings = load_settings()
     melee = find_melee(args.melee)
-    args.phillip = find_phillip(args.phillip, args.agent)
+    args.phillip = find_phillip(args.phillip, args.agent or "FalconFalconBF")
     disc = find_disc(args.iso, settings)
-    weights = ensure_weights(args)
+    if args.agent is not None:
+        agent_source = ["--weights", str(ensure_weights(args))]
+    else:
+        agent_source = ["--roster", str(ensure_roster(args))]
 
     if WINDOWS or args.tcp:
         sock = bridge.free_tcp_address()
@@ -244,7 +281,7 @@ def main():
     if args.quick:
         if args.port > 2:
             fail("--quick seats ports 1 and 2 only; use --port 1 or 2")
-        params = agent_params(args.phillip, args.agent)
+        params = agent_params(args.phillip, args.agent or "FalconFalconBF")
         me = phillip_obs.CKIND_BY_PHILLIP_NAME.get(params.get("char"), 0)
         them = phillip_obs.CKIND_BY_PHILLIP_NAME.get(args.opponent or params.get("char"), me)
         chars = [them, them]
@@ -254,9 +291,10 @@ def main():
         if stage is not None and stage != 0x20:  # the debug match is on Final Destination already
             env["MELEE_DEBUG_VS_STAGE"] = str(stage)
 
-    print(f"play: {melee} with {args.agent} on P{args.port}; disc {disc}", flush=True)
+    who = args.agent or "Phillip's agents"
+    print(f"play: {melee} with {who} on P{args.port}; disc {disc}", flush=True)
     game = subprocess.Popen([str(melee), str(disc)], cwd=str(melee.parent), env=env)
-    agent_cmd = [sys.executable, str(HERE / "agent.py"), "--weights", str(weights), "--socket", sock,
+    agent_cmd = [sys.executable, str(HERE / "agent.py"), *agent_source, "--socket", sock,
                  "--epsilon", str(args.epsilon), "--frame-lag", str(args.frame_lag)]
     if args.seed is not None:
         agent_cmd += ["--seed", str(args.seed)]
