@@ -258,8 +258,6 @@ static void fight_over(void) {
 static void inject(PADStatus* head) {
     PADStatus* mine = &head[s_port];
     static const AgentPad neutral;
-    s_tick_agent = false;
-    s_tick_late = false;
     if (!s_fight) {
         AgentPad unused;
         agent_link_take_input(s_tick, false, &unused); /* menu inputs are not queued up */
@@ -312,6 +310,10 @@ void pc_agent_pre_tick(void) {
         s_have_agent_pad = false;
     }
 
+    /* Set by inject; a tick with no queued sample reruns the last one and
+     * takes no input (the agent's stays queued for the next tick). */
+    s_tick_agent = false;
+    s_tick_late = false;
     PADStatus* head = pad_head();
     s_pad_fresh = head != NULL;
     if (head != NULL) {
