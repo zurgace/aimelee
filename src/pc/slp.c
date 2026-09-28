@@ -18,6 +18,7 @@
  * and is no replay frame -- as in a Slippi file, where the frame index only
  * moves while the match runs. */
 #include "compat.h"
+#include "pc/agent_bridge.h"
 #include "pc/net.h"
 #include "pc/pc.h"
 #include "pc/region.h"
@@ -608,6 +609,8 @@ static void capture_end(Staged* s, const VsSceneController* vs) {
 }
 
 void pc_slp_tick_end(uint64_t proc_mask) {
+    /* The agent bridge's post-tick snapshot shares this hook (agent_bridge.h). */
+    pc_agent_post_tick(proc_mask);
     if (!s_begin.on || !s_rec || !slp_scene()) {
         return;
     }

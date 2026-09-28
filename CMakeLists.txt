@@ -185,6 +185,8 @@ endif ()
 # stray .c/.cpp dropped into src/pc must not silently join the build.
 # src/pc/vtxarray.c is deliberately absent - it belongs to melee_game.
 set(PC_SOURCES
+        src/pc/agent_bridge.c
+        src/pc/agent_link.c
         src/pc/audio.c
         src/pc/disc_open.c
         src/pc/discfont.c
@@ -499,6 +501,12 @@ if (NOT ANDROID AND NOT IOS AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         add_test(NAME net_chat_ui COMMAND net_chat_ui_test)
         set_tests_properties(net_chat_ui PROPERTIES LABELS melee TIMEOUT 30)
         add_dependencies(unit_tests net_chat_ui_test)
+        add_executable(agent_link_test EXCLUDE_FROM_ALL tools/test_agent_link.c src/pc/agent_link.c)
+        target_include_directories(agent_link_test PRIVATE src)
+        target_compile_options(agent_link_test PRIVATE -UNDEBUG)
+        add_test(NAME agent_link COMMAND agent_link_test)
+        set_tests_properties(agent_link PROPERTIES LABELS melee TIMEOUT 30)
+        add_dependencies(unit_tests agent_link_test)
         add_executable(slp_test EXCLUDE_FROM_ALL tools/test_slp.c src/pc/slp_format.c)
         target_include_directories(slp_test PRIVATE src)
         target_link_libraries(slp_test PRIVATE ${AURORA_SDL3_TARGET})
