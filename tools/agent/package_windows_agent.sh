@@ -38,7 +38,8 @@ if [[ ! -f "${ROOT_IN_ZIP}/melee.exe" ]]; then
 fi
 
 mkdir -p "${ROOT_IN_ZIP}/ai-melee"
-cp "${SCRIPT_DIR}"/*.py "${SCRIPT_DIR}/requirements.txt" "${ROOT_IN_ZIP}/ai-melee/"
+cp "${SCRIPT_DIR}"/*.py "${SCRIPT_DIR}/requirements.txt" "${SCRIPT_DIR}/slippi-requirements.txt" \
+    "${ROOT_IN_ZIP}/ai-melee/"
 # Windows tools want CRLF in the files people open by hand.
 sed 's/$/\r/' "${SCRIPT_DIR}/windows/Play AI-Melee.bat" > "${ROOT_IN_ZIP}/Play AI-Melee.bat"
 sed 's/$/\r/' "${SCRIPT_DIR}/windows/README-AI-Melee.txt" > "${ROOT_IN_ZIP}/README-AI-Melee.txt"

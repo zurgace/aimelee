@@ -27,15 +27,18 @@ Playing
 Double-click "Play AI-Melee.bat".
 
 - The first time, a window asks for your disc image; the choice is
-  remembered. Then it downloads TensorFlow once (about 250 MB, a few
-  minutes) to convert Phillip's network. Later starts take seconds.
+  remembered. Then a one-time setup: it converts the 2017 agents, sets up
+  the newer Phillip (slippi-ai, about 2.5 GB) and downloads its model. This
+  takes a while; later starts take seconds. Wait for "slippi: model ready".
 - In the game: take P1 (keyboard, or a controller) and pick anyone.
   P2 shows as plugged in: with P1's cursor click P2's door to CPU, pick
-  Captain Falcon, Fox, Falco, Marth, Peach or Sheik for it (Ganondorf and
-  Roy borrow Falcon's and Marth's agents), then click the door on to HMN.
-  Choose Final Destination (Battlefield for Falcon). Phillip plays P2 from
-  GO! until the match ends; press Start on the results screen to go on.
-  Other characters have no Phillip agent: set P2 to CPU for those.
+  P2's character, then click the door on to HMN. The newer Phillip plays
+  Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth,
+  Peach, Pikachu, Samus, Sheik and Yoshi; the 2017 agents also cover
+  Ganondorf and Roy; anyone else stands still (set P2 to CPU for those).
+  Random on the stage select picks a tournament stage.
+- Phillip plays P2 from GO! until the match ends; press Start on the
+  results screen to go on.
 - Click the game window before playing so it gets the keyboard.
 - Close the game window, or press Ctrl-C in the black console window, to
   stop.

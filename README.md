@@ -3,7 +3,7 @@ using the readme from melee-pc as the base, but with some excerpts tied to ai-me
 
 > **AI-Melee.** This fork adds an agent bridge for playing offline against the
 > [Phillip](https://github.com/vladfi1/phillip) AI. Install and play on
-> [Linux](#ai-melee-play-against-phillip) or [Windows 10/11](#windows-10).
+> [Linux (CachyOS)](#install-on-linux-cachyos) or [Windows 10/11](#windows-10).
 
 **Beta, for testing only.** "melee-pc" is a working name. Online play with
 rollback netcode is in development. This branch includes LAN, internet friend
@@ -225,6 +225,7 @@ per-device `.controller` files; everything else shares `launcher.cfg`.
 | `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
 | `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
 | `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
+| `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
 | `--no-card` | Boot without a memory card. |
 | `--dvd <image>` | Explicit form of the positional disc argument. |
 | `--version` | Print the build version and exit. |
@@ -254,12 +255,16 @@ offline match against Phillip, the Melee AI, in two generations:
 
 **On Windows?** Skip to [Windows 10](#windows-10): a download, no build.
 
+**Linux:** see [Install on Linux (CachyOS)](#install-on-linux-cachyos).
+
 **Assumptions.** The Linux instructions assume:
 - **Linux.** Written for CachyOS/Arch, so package names are pacman's.
 - **The [fish](https://fishshell.com/) shell (3.1 or newer), run in a terminal such as [Alacritty](https://alacritty.org/).** Every command below is fish syntax; the two places where bash differs are noted.
 - **Your own disc.** A Melee NTSC-U 1.02 (GALE01) image.
 
-### Install
+### Install on Linux (CachyOS)
+
+Six steps. The first run then sets up both AIs by itself, which takes a while once. Expect about 4 GB of disk for the build, both AIs and their Python environments.
 
 1. **System packages** (once). Also install your GPU's Vulkan driver: `nvidia-utils` (NVIDIA), `vulkan-radeon` (AMD) or `vulkan-intel`. Most of these are already on a desktop install; `--needed` skips them.
 
@@ -270,7 +275,9 @@ offline match against Phillip, the Melee AI, in two generations:
        alsa-lib libpulse dbus systemd-libs
    ```
 
-2. **AI-Melee and Phillip, side by side.** `play.py` looks for Phillip in `../phillip`.
+   You don't need to install another Python version: [uv](https://docs.astral.sh/uv/) fetches the ones the AIs need (3.12 for slippi-ai, 3.11 for converting the 2017 agents) into their own environments.
+
+2. **AI-Melee and Phillip, side by side.** `play.py` looks for Phillip's 2017 agents in `../phillip`.
 
    ```fish
    mkdir -p ~/src; and cd ~/src
@@ -294,16 +301,7 @@ offline match against Phillip, the Melee AI, in two generations:
    set -Ux MELEE_DISC ~/Games/Melee/GALE01.iso
    ```
 
-5. **Export the agents** (once). This runs Phillip's checkpoints through TensorFlow 2.13 in a throwaway Python 3.11 environment managed by [uv](https://docs.astral.sh/uv/); it downloads about 200 MB the first time. After that, playing needs only numpy. `play.py` does this step by itself on the first run (every agent it uses, in one go) if you skip it. By hand, repeat `--agent` for each one:
-
-   ```fish
-   uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
-       tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF --agent delay0/FoxFD
-   ```
-
-   Keep the quotes around `tensorflow-cpu==2.13.*`. fish treats an unquoted `*` as a file glob and stops with "No matches for wildcard".
-
-6. **Optional: an `ai-melee` command.** Afterwards, `ai-melee`, `ai-melee --quick` or `ai-melee --agent delay0/FoxFD` work from any directory.
+5. **An `ai-melee` command** (optional). Afterwards `ai-melee`, `ai-melee --quick` or `ai-melee --brain classic` work from any directory.
 
    ```fish
    function ai-melee --description 'Play Melee against Phillip (AI-Melee)'
@@ -311,6 +309,22 @@ offline match against Phillip, the Melee AI, in two generations:
    end
    funcsave ai-melee
    ```
+
+6. **First run.** Run `ai-melee` (or `python3 tools/agent/play.py` from `~/src/ai-melee`). The first time, before the game opens, it:
+   - converts the 2017 agents from Phillip's checkpoints with TensorFlow 2.13 (about 250 MB of downloads, a few minutes);
+   - sets up the newer Phillip: slippi-ai's own Python 3.12 environment in `tools/agent/slippi-env` (about 2.5 GB, the longest step), then its medium-v2 model from Dropbox;
+   - times one model step on your machine and prints which characters it plays.
+
+   Every later start takes seconds. Wait for `slippi: model ready` before starting a match.
+
+   To convert the 2017 agents by hand instead, keep the quotes around `tensorflow-cpu==2.13.*`; fish reads an unquoted `*` as a file glob and stops with "No matches for wildcard":
+
+   ```fish
+   uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
+       tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF --agent delay0/FoxFD
+   ```
+
+**Updating.** `cd ~/src/ai-melee; and git pull; and ninja -C build`. A change to `tools/agent/slippi-requirements.txt` makes the next start rebuild slippi-ai's environment by itself.
 
 ### Play
 
@@ -344,6 +358,7 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
   - Choose a stage: Final Destination for every agent except Falcon's (Battlefield). The terminal names the agent at each match start.
 - **During the match.** The agent drives P2 from GO! and lets go when the match ends. Close the game window, or press Ctrl-C in the terminal, to stop both.
 - **After the match.** P2 counts as ready on the results screen, so press Start once and you're back at the character select, with P2 still seated.
+- **Random stage.** Pressing Start on the stage select picks one of Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. A stage still locked on your save (Dream Land N64 is an unlockable) is left out, and the terminal says so. `--random-stages all` uses the game's own Options → Random Stage Switch list instead. AI-Melee only sets the list while the stage select is open and puts yours back after, so your memory card keeps your own list.
 - **Quick start.** `--quick` skips the menus and boots straight into a Falcon vs Falcon match on Battlefield, or into `--agent`'s matchup.
 - **More agents.** The `delay18` agents are not in Phillip's repo; they're in the "full set of trained agents" zip linked from [Phillip's README](https://github.com/vladfi1/phillip#readme) (Google Drive). Phillip's author calls `delay18/FalcoBF` the best human-like agent. Put each one's files (`params`, `snapshot*`) in `../phillip/agents/delay18/<name>/`, and the next `ai-melee` converts and uses them. They react 18 frames late (12 for Puff), by design.
 - **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
@@ -366,13 +381,15 @@ For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You dow
 **What you need.**
 - **Windows 10 or 11, 64-bit,** with an up-to-date graphics driver (NVIDIA, AMD or Intel). The game draws with Direct3D 12; see [Requirements](#requirements).
 - **Your Melee disc image:** NTSC-U 1.02 (GALE01), usually a `.iso` file.
-- **About 2 GB of free disk space and an internet connection** for the first run. Later runs work offline.
+- **About 4 GB of free disk space and an internet connection** for the first run. Later runs work offline.
 
 **What gets installed.**
 - **Python 3.12**, which runs the AI.
 - **Two Python packages:**
   - `numpy` runs Phillip's network.
-  - `uv` converts Phillip's saved network once, using a temporary copy of Python 3.11 and TensorFlow 2.13 that it downloads and manages itself.
+  - `uv` sets up the rest once, in environments it downloads and manages itself:
+    - the newer Phillip (slippi-ai) with its own Python 3.12, TensorFlow and libmelee, about 2.5 GB;
+    - a temporary Python 3.11 with TensorFlow 2.13, which converts the 2017 agents.
 - **The AI-Melee download** (the game plus the AI scripts) and **Phillip's source**, which holds the trained agents.
 
 1. **Install Python 3.12.** Download the "Windows installer (64-bit)" from [python.org/downloads](https://www.python.org/downloads/windows/). In the installer's first screen tick **Add python.exe to PATH**, then click **Install Now**. Alternatively, in PowerShell:
@@ -400,12 +417,20 @@ For Windows 10 or 11, 64-bit, starting from nothing but your disc image. You dow
 
 5. **Play.** Double-click `Play AI-Melee.bat` in the `AI-Melee` folder.
    - **First run only:** a window asks for your disc image (it may open behind the console), and the choice is remembered.
-   - **Then a one-time conversion:** it downloads TensorFlow once (about 250 MB) and converts Phillip's agents. This takes a few minutes; later starts take seconds.
+   - **Then a one-time setup:**
+     - it converts the 2017 agents (about 250 MB of downloads);
+     - it sets up slippi-ai (about 2.5 GB) and downloads its medium-v2 model;
+     - it times the model once.
+
+     This takes a while; later starts take seconds. Wait for `slippi: model ready` in the console.
    - **Then the game opens.** The console window stays open with the AI's log.
 
 6. **In the game.**
    - Click the game window so it gets the keyboard.
-   - Set up the match as in [Play](#play): you are P1; switch P2 to CPU, pick Falcon, Fox, Falco, Marth, Peach or Sheik for it, switch back to HMN; choose Final Destination (Battlefield for Falcon).
+   - Set up the match as in [Play](#play). You are P1. Switch P2 to CPU, pick its character, then switch it back to HMN.
+     - The newer Phillip plays Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi.
+     - The 2017 agents also cover Ganondorf and Roy.
+     - Anyone else stands still.
    - Close the game window to stop.
 
 **Options.** `Play AI-Melee.bat` passes its arguments to `play.py`. In PowerShell, from the `AI-Melee` folder:
@@ -426,7 +451,12 @@ py ai-melee\list_agents.py --phillip phillip-master   # the agents and their mat
 - **The game doesn't start or shows a black window**: update your graphics driver, then double-click `RUN-AND-LOG.bat` and read `melee-pc.log`. The [project site](https://999sian.github.io/melee-pc/) FAQ covers first-run problems.
 - **Wrong disc remembered**: delete `ai-melee\settings.json`, or pass `--iso <path>`.
 
-The Windows build is made by this fork's [release workflow](.github/workflows/ai-melee-windows.yml) and has not yet been played on a real Windows machine. The bridge's Windows networking is tested under Wine. Please [open an issue](https://github.com/zurgace/aimelee/issues) with the console output if something goes wrong.
+**Status on Windows.**
+- **The download.** The Windows build is made by this fork's [release workflow](.github/workflows/ai-melee-windows.yml). If the Releases page lists no `AI-Melee-Windows-x86_64.zip` yet, none has been published.
+- **Testing.** It has not been played on a real Windows machine; the bridge's Windows networking is tested under Wine.
+- **slippi-ai.** It hasn't been tested on Windows. Its pinned packages do publish Windows builds, but if its setup fails, AI-Melee says so and the 2017 agents play instead. `--brain classic` skips it altogether.
+
+Please [open an issue](https://github.com/zurgace/aimelee/issues) with the console output if something goes wrong.
 
 ## Netplay (LAN and direct IP, prototype)
 
