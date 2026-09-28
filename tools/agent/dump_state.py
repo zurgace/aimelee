@@ -6,7 +6,10 @@ Start the game with the bridge on, then run this in another terminal:
     MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee <disc.iso>
     python3 tools/agent/dump_state.py --socket /tmp/melee-agent.sock
 
-It never sends input, so the game does not wait on it. Options:
+It never sends input, so the game does not wait on it. The bridge serves
+one client at a time (a new connection replaces the old), so do not run it
+next to a playing agent: record with agent.py / play.py --record instead.
+Options:
 
     --every N     print one tick in N (default 30, i.e. twice a second)
     --fight-only  skip menu ticks

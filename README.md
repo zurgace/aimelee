@@ -216,6 +216,10 @@ per-device `.controller` files; everything else shares `launcher.cfg`.
 | `MELEE_UCF=1` | Universal Controller Fix (UCF 0.8x dashback and shield-drop rules); overrides the `ucf` launcher.cfg pref. |
 | `MELEE_GC_ADAPTER=0` | Hand the GameCube adapter (WUP-028) back to SDL's gamepad driver instead of reading it raw. |
 | `MELEE_SLP_DIR=<dir>` | Record every VS match, offline or netplay, as a Slippi replay `<dir>/Game_YYYYMMDDTHHMMSS.slp` (replay format 3.18.0) that Slippi Launcher, slippi-js stats, Clippi and overlays read. Only frames no rollback can change are written, so both netplay peers' files hold the same frames. Off by default. |
+| `MELEE_AGENT_SOCKET=<path>` | Agent bridge: listen on this AF_UNIX socket so an external agent (e.g. [Phillip](#playing-against-phillip-agent-bridge)) can watch the game and drive one port. Off by default; unset, nothing changes. |
+| `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
+| `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
+| `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
 | `--no-card` | Boot without a memory card. |
 | `--dvd <image>` | Explicit form of the positional disc argument. |
 | `--version` | Print the build version and exit. |
@@ -232,6 +236,40 @@ Diagnostic knobs (`MELEE_DEBUG`, `MELEE_FPS`, `MELEE_HEAP_CHECK`, the
 - [Bug report form](https://github.com/999sian/melee-pc/issues/new?template=bug_report.yml);
   attach the log (`melee-pc.log` on Windows, see
   [docs/debugging.md](docs/debugging.md#log-files)).
+
+## Playing against Phillip (agent bridge)
+
+An offline match against [Phillip](https://github.com/vladfi1/phillip), the
+deep-RL Melee agent. It is inference only: its trained networks run in numpy,
+and the game talks to them over a local socket instead of a patched Dolphin.
+The bridge is off unless `MELEE_AGENT_SOCKET` is set. It lives in `src/pc/agent_*`
+and hooks the existing per-tick `pc_net_sync` / `pc_slp_tick_end` calls, so
+no game code changes.
+
+```sh
+git clone https://github.com/vladfi1/phillip ../phillip   # beside this checkout
+cmake -B build -G Ninja && ninja -C build
+sudo pacman -S python-numpy   # the agent's only dependency (or a venv: pip install numpy)
+python3 tools/agent/play.py --iso /path/to/GALE01.iso
+```
+
+The first run exports the agent's weights from Phillip's checkpoint with
+TensorFlow 2.13, in a throwaway Python 3.11 environment through
+[uv](https://docs.astral.sh/uv/). After that only numpy is needed.
+
+- **Set up the match.** The default agent, `FalconFalconBF`, plays Captain Falcon on P2 and was trained on Falcon vs Falcon on Battlefield.
+  - Take P1 (keyboard, or a gamepad on port 1) and pick Captain Falcon.
+  - P2 reads as plugged in. With P1's cursor, click P2's door to CPU, pick Captain Falcon for it, then click the door on to HMN.
+  - Choose Battlefield.
+- **During the match.** The agent drives P2 from GO! and lets go when the match ends.
+- **Quick start.** `--quick` skips the menus and boots straight into the agent's matchup.
+- **Other agents.** `--agent <name>` picks another agent. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
+- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync` and `--timeout-ms` are described in `play.py --help`.
+- **Performance.**
+  - A network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
+  - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
+  - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
+- **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `dump_state.py` prints the live state; `inject_script.py` drives the agent port without any AI.
 
 ## Netplay (LAN and direct IP, prototype)
 
