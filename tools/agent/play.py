@@ -58,6 +58,9 @@ Options:
   --p2-pick on|off   on (default): opening the AI's door on the character
                      select seats it as HMN with a random character an AI
                      plays (Sheik aside: hold A on Zelda for her)
+  --gomi             Gomihyu, a language model through Ollama, plays Mario:
+                     she picks the game plan, and learns after each match
+                     (gomi_brain.py; tools/agent/gomi/ keeps her lessons)
   --quick            skip the menus: boot straight into a Falcon match (or
                      --agent's matchup): debug VS, both ports human
   --record FILE      record every state the agent sees (dump_state format;
@@ -331,6 +334,21 @@ def probe_slippi(python, model):
     return ckinds
 
 
+GOMI_MARIO = 0x08
+
+
+def gomi_status():
+    """Whether Gomihyu's model answers, in one line."""
+    import gomi_brain
+
+    llm = gomi_brain.Ollama(os.environ.get("GOMI_OLLAMA_URL") or gomi_brain.DEFAULT_URL,
+                           os.environ.get("GOMI_MODEL") or gomi_brain.DEFAULT_MODEL)
+    why = llm.check()
+    if why:
+        return f"Gomihyu plays Mario on her rules for now: {why}"
+    return f"Gomihyu plays Mario ({llm.model} via Ollama)"
+
+
 SHEIK = 0x13  # picked by holding A on Zelda as the match loads: not a character select icon
 
 
@@ -365,6 +383,8 @@ def main():
     ap.add_argument("--seed", type=int)
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--random-stages", choices=["legal", "all"], default="legal")
+    ap.add_argument("--gomi", action="store_true",
+                    help="Gomihyu, a language model through Ollama, plays Mario (gomi_brain.py)")
     ap.add_argument("--p2-pick", choices=["on", "off"], default="on",
                     help="opening the AI's door on the character select gives it a random "
                          "character an AI plays (default on)")
@@ -410,6 +430,12 @@ def main():
                 fail("slippi-ai is not available (see above)")
             else:
                 print("play: slippi-ai is not available (see above): the 2017 agents play", flush=True)
+    if args.gomi:
+        if args.agent is not None:
+            fail("--gomi works with the roster, not with --agent")
+        agent_source.append("--gomi")
+        ai_chars = css_chars(model_ckinds=[int(c) for c in ai_chars.split(",") if c], roster_ckinds=[GOMI_MARIO])
+        print(f"play: {gomi_status()}", flush=True)
 
     if WINDOWS or args.tcp:
         sock = bridge.free_tcp_address()

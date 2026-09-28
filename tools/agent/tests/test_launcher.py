@@ -25,16 +25,22 @@ class OptionsTest(unittest.TestCase):
             disc = Path(tmp) / "GALE01.iso"
             disc.write_bytes(b"")
             opts = launcher.load_options({}, environ={"MELEE_DISC": str(disc)})
-            self.assertEqual(opts, {"brain": "auto", "p2_pick": True, "legal_stages": True, "disc": str(disc)})
+            self.assertEqual(opts, {"brain": "auto", "p2_pick": True, "legal_stages": True, "gomi": False,
+                                    "disc": str(disc)})
             self.assertEqual(launcher.play_args(opts), ["--iso", str(disc), "--brain", "auto",
                                                         "--p2-pick", "on", "--random-stages", "legal"])
             opts.update(brain="classic", p2_pick=False, legal_stages=False)
             settings = launcher.store_options({"other": 1}, opts)
-            self.assertEqual(settings["launcher"], {"brain": "classic", "p2_pick": False, "legal_stages": False})
+            self.assertEqual(settings["launcher"], {"brain": "classic", "p2_pick": False, "legal_stages": False,
+                                                 "gomi": False})
             self.assertEqual(settings["disc"], str(disc.resolve()))  # the key play.py reads too
             again = launcher.load_options(settings, environ={})
             self.assertEqual(launcher.play_args(again)[2:], ["--brain", "classic", "--p2-pick", "off",
                                                              "--random-stages", "all"])
+
+    def test_gomi_option(self):
+        opts = launcher.load_options({"launcher": {"gomi": True}}, environ={})
+        self.assertEqual(launcher.play_args(opts)[-1], "--gomi")
 
     def test_missing_disc_and_bad_brain(self):
         opts = launcher.load_options({"disc": "/nonexistent.iso", "launcher": {"brain": "x"}}, environ={})
@@ -70,6 +76,15 @@ class StatusTest(unittest.TestCase):
         self.check("agent: Fox: delay0/FoxFD", ("match", "This match: the 2017 agent plays Fox"))
         self.check("agent: Ganondorf: no Phillip agent, Captain Falcon's (FalconFalconBF) stands in",
                    ("match", "This match: the 2017 agent plays Ganondorf"))
+
+    def test_gomi_lines(self):
+        self.check("gomi: Gomihyu plays Mario vs Fox (gemma4:e4b; 3 lessons, 2 matches played)",
+                   ("match", "This match: Gomihyu plays Mario vs Fox"))
+        self.check('gomi: Gomi: "Kneel before my fireballs!"', ("gomi", 'Gomi: "Kneel before my fireballs!"'))
+        self.check('gomi: after the match: "I let you win."', ("gomi", 'Gomi: "I let you win."'))
+        self.check("gomi: match over: lost 0-2 stocks vs Fox; best plan so far fireball, worst approach",
+                   ("result", "Gomihyu lost 0-2 stocks vs Fox; best plan so far fireball, worst approach"))
+        self.assertIsNone(launcher.status_for("gomi: plan: fireball"))
 
     def test_noise_is_ignored(self):
         for line in ("agent: roster: Fox, Falco", "[    3.0] agent: driving port 2 from tick 812",

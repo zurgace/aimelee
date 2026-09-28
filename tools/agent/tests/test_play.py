@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -140,6 +141,11 @@ class CssCharsTest(unittest.TestCase):
         self.assertEqual(names(self.play.css_chars(roster_ckinds=classic)), sorted([
             "Fox", "Falco", "Peach", "Captain Falcon", "Ganondorf", "Marth", "Roy"]))
         self.assertEqual(self.play.css_chars([0x13]), "")
+
+    def test_gomi_status_without_ollama(self):
+        with mock.patch.dict(os.environ, {"GOMI_OLLAMA_URL": "http://127.0.0.1:9/api/chat"}):
+            self.assertIn("on her rules", self.play.gomi_status())
+        self.assertEqual(self.play.css_chars([2, 20], [self.play.GOMI_MARIO]), "2,8,20")
 
     def test_old_probe_without_ckinds_is_redone(self):
         if os.name == "nt":

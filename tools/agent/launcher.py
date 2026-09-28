@@ -42,7 +42,7 @@ BRAINS = [
     ("slippi", "Newer Phillip only (slippi-ai)"),
     ("classic", "2017 agents only"),
 ]
-DEFAULTS = {"brain": "auto", "p2_pick": True, "legal_stages": True}
+DEFAULTS = {"brain": "auto", "p2_pick": True, "legal_stages": True, "gomi": False}
 
 
 # ---------------------------------------------------------------- pure parts
@@ -72,6 +72,8 @@ def play_args(opts):
     args = ["--brain", opts["brain"],
             "--p2-pick", "on" if opts["p2_pick"] else "off",
             "--random-stages", "legal" if opts["legal_stages"] else "all"]
+    if opts.get("gomi"):
+        args.append("--gomi")
     if opts.get("disc"):
         args = ["--iso", str(opts["disc"])] + args
     return args
@@ -109,6 +111,17 @@ def status_for(line, brain="auto"):
         if brain == "classic":
             return "ai", "AI ready: pick your characters and play"
         return "ai", "Loading the AI model..."
+    m = re.match(r"gomi: Gomihyu plays Mario vs (.+?) \(", line)
+    if m:
+        return "match", f"This match: Gomihyu plays Mario vs {m.group(1)}"
+    m = re.match(r'gomi: (?:Gomi|after the match): "(.+)"$', line)
+    if m:
+        return "gomi", f'Gomi: "{m.group(1)}"'
+    if line.startswith("play: Gomihyu plays Mario on her rules"):
+        return "gomi", "Gomihyu: Ollama isn't answering, so she plays on her rules (see log)"
+    m = re.match(r"gomi: match over: (.+)$", line)
+    if m:
+        return "result", "Gomihyu " + m.group(1)
     m = re.match(r"agent: P(\d) opens as (.+?) \(", line)
     if m:
         return "match", f"P{m.group(1)} opens as {m.group(2)}"
@@ -282,6 +295,9 @@ class Launcher:
                         variable=self.p2_pick).pack(anchor="w")
         self.legal = tk.BooleanVar(value=self.opts["legal_stages"])
         ttk.Checkbutton(game, text="Random stage picks tournament stages only", variable=self.legal).pack(anchor="w")
+        self.gomi = tk.BooleanVar(value=self.opts["gomi"])
+        ttk.Checkbutton(game, text="Gomihyu plays Mario (needs Ollama with gemma4:e4b)",
+                        variable=self.gomi).pack(anchor="w")
         disc = ttk.Frame(game)
         disc.pack(fill="x", pady=(6, 0))
         ttk.Label(disc, text="Disc:").pack(side="left")
@@ -331,7 +347,8 @@ class Launcher:
         return bool(self.opts.get("disc"))
 
     def save(self):
-        self.opts.update(brain=self.brain.get(), p2_pick=self.p2_pick.get(), legal_stages=self.legal.get())
+        self.opts.update(brain=self.brain.get(), p2_pick=self.p2_pick.get(), legal_stages=self.legal.get(),
+                         gomi=self.gomi.get())
         play.save_settings(store_options(self.settings, self.opts))
 
     # ---- running play.py ------------------------------------------------
@@ -422,7 +439,7 @@ class Launcher:
         self.status[slot] = text
         for w in self.status_box.winfo_children():
             w.destroy()
-        for key in ("start", "setup", "agents", "model", "game", "ai", "match"):
+        for key in ("start", "setup", "agents", "model", "game", "ai", "match", "gomi", "result"):
             if key in self.status:
                 mark = "✓" if key in ("agents", "model") or self.status[key].startswith("AI ready") else "•"
                 self.ttk.Label(self.status_box, text=f"{mark}  {self.status[key]}", wraplength=520,

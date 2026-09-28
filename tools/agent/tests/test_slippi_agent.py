@@ -217,6 +217,34 @@ class LoopTest(unittest.TestCase):
         self.assertNotIn("slippi-ai plays:", line)  # --brain classic
         self.assertNotIn("model ready", proc.stdout)  # classic only: no warm-up
 
+    def test_gomi_takes_mario(self):
+        """--gomi: Mario goes to Gomihyu (a fake Ollama), even with the model on."""
+        import json
+        sys.path.insert(0, str(HERE))
+        from test_gomi import FakeOllama
+
+        fake = FakeOllama(plan="approach")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                roster_file = Path(tmp) / "roster.json"
+                roster_file.write_text(json.dumps({}))
+                sock = str(Path(tmp) / "agent.sock")
+                game = FakeGame(sock, p2_ckind=8)
+                game.start()
+                env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"))
+                proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"),
+                                       "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", sock,
+                                       "--roster", str(roster_file), "--gomi", "--once"],
+                                      capture_output=True, text=True, timeout=300, env=env)
+                game.join(30)
+        finally:
+            fake.close()
+        self.assertEqual(proc.returncode, 0, proc.stderr[-3000:])
+        self.assertIn("gomi: Gomihyu plays Mario", proc.stdout)
+        self.assertNotIn("slippi-ai plays P2", proc.stdout)
+        fight = {t: r for t, r in game.replies.items() if t > game.menu_ticks}
+        self.assertFalse(any(fl & bridge.IN_RELEASE for fl, _ in fight.values()))
+
 
 if __name__ == "__main__":
     unittest.main()

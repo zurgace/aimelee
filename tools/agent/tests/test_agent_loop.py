@@ -10,6 +10,7 @@ per match.
 """
 
 import json
+import os
 import socket
 import struct
 import subprocess
@@ -275,6 +276,43 @@ class AgentLoopTest(unittest.TestCase):
         before = [t for t in game.replies if t < mario[0]]
         self.assertTrue(game.replies[max(before)][1] & bridge.IN_RELEASE,
                         "the port is still released when the Mario match starts")
+
+    def test_gomi_plays_mario(self):
+        """--gomi: Mario gets Gomihyu (a fake Ollama here), who answers every
+        tick without holding the game up and reflects when the match ends."""
+        sys.path.insert(0, str(HERE))
+        from test_gomi import FakeOllama
+
+        MARTH, MARIO = 0x09, 0x08
+        menu = [(False, False, i, False) for i in range(1, 20)]
+        script = menu + [(True, i == 1, i, True, MARIO) for i in range(1, 200)] + menu
+        fake = FakeOllama(plan="pressure")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                marth = Path(tmp) / "marth.npz"
+                make_model(marth, char="marth")
+                roster_file = Path(tmp) / "roster.json"
+                roster_file.write_text(json.dumps({str(MARTH): {"final_destination": {
+                    "agent": "MarthTiny", "weights": str(marth), "char": "marth", "stand_in_for": None}}}))
+                sock = str(Path(tmp) / "agent.sock")
+                game = FakeGame(sock, script)
+                game.start()
+                env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
+                           GOMI_PLAN_EVERY="0.05")
+                proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--roster", str(roster_file),
+                                       "--socket", sock, "--seed", "3", "--once", "--gomi"],
+                                      capture_output=True, text=True, timeout=60, env=env)
+                game.join(10)
+                lessons = (Path(tmp) / "gomi" / "lessons.md").read_text()
+        finally:
+            fake.close()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("gomi: Gomihyu plays Mario vs Captain Falcon", proc.stdout)
+        self.assertIn("gomi: match over:", proc.stdout)
+        self.assertIn("Fireballs work on Fox.", lessons)
+        fight = [t for t, st in enumerate(game.states, 1) if st.in_fight]
+        self.assertTrue(all(t in game.replies and not game.replies[t][1] & bridge.IN_RELEASE for t in fight))
+        self.assertTrue(any(game.replies[t][2] != bridge.Pad.neutral() for t in fight), "Mario moves")
 
 
 if __name__ == "__main__":

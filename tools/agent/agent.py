@@ -107,6 +107,12 @@ class Runner:
         else:
             self.use(args.weights, args.char)
         self.stats = Stats()
+        self.gomi = None
+        self.gomi_match = False
+        if getattr(args, "gomi", False):
+            import gomi_brain
+            self.gomi_mod = gomi_brain
+            self.gomi = gomi_brain.GomiBrain(seed=args.seed)
         self.rec = None
         if args.record:
             self.rec = open(args.record, "wb")
@@ -138,9 +144,19 @@ class Runner:
                  f"({self.model.delay * self.model.act_every} frames), memory {self.model.memory}, "
                  f"epsilon {self.args.epsilon}")
 
+    def plays(self, ckind):
+        """Roster mode: an agent (or Gomihyu) plays this character."""
+        return self.gomi_plays(ckind) or (self.roster is not None and ckind in self.roster)
+
+    def gomi_plays(self, ckind):
+        return self.gomi is not None and self.gomi_mod.plays(ckind)
+
     def pick(self, ckind, stkind):
         """Roster mode: choose this match's agent from the port's character
         and the stage. False when no agent plays it."""
+        if self.gomi_plays(ckind):
+            self.gomi_match = True
+            return True
         rd = self.roster_mod
         by_stage = self.roster.get(ckind)
         entry = rd.for_stage(by_stage, stkind) if by_stage else None
@@ -173,6 +189,7 @@ class Runner:
         else:
             self.agent.reset()
         self.idle = False
+        self.gomi_match = False
         self.frames_in_match = 0
         self.last_scene_frame = None
         self.prev_obs = {}
@@ -220,7 +237,14 @@ class Runner:
         if self.opp_port is None:
             self.opp_port = next((i for i, f in enumerate(st.fighters) if f.present and i != port), None)
             if self.opp_port is not None and me.present:
-                self.check_matchup(st, port)
+                if self.gomi_match:
+                    self.gomi.start_match(st, port, self.opp_port)
+                else:
+                    self.check_matchup(st, port)
+        if self.gomi_match:
+            if self.opp_port is not None and me.present:
+                self.pad = self.gomi.pad_for(st, port, self.opp_port)
+            return self.pad
         new_frame = self.last_scene_frame is None or st.scene_frame > self.last_scene_frame
         self.last_scene_frame = st.scene_frame
         if not new_frame or self.opp_port is None or not me.present:
@@ -300,6 +324,9 @@ class Runner:
                       f"P{port + 1} {me.percent}% as 0x{me.motion_id:X}", flush=True)
 
     def match_over(self, st):
+        if self.gomi_match:
+            self.gomi.end_match()
+            return
         s = self.stats.summary()
         self.log(f"match over: {s['network_steps']} network steps, step p50 {s['step_us_p50']:.0f} us "
                  f"p99 {s['step_us_p99']:.0f} us, reply p99 {s['reply_us_p99']:.0f} us, "
@@ -316,6 +343,8 @@ class Runner:
                 json.dump(self.stats.summary(), f, indent=1)
 
     def close(self):
+        if self.gomi is not None:
+            self.gomi.close()
         self.write_stats()
         if self.rec is not None:
             self.rec.close()
@@ -339,6 +368,8 @@ def main():
     ap.add_argument("--once", action="store_true", help="exit when the game closes the connection")
     ap.add_argument("--connect-timeout", type=float, default=120.0)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--gomi", action="store_true",
+                    help="roster mode: Gomihyu (gomi_brain.py, through Ollama) plays Mario")
     args = ap.parse_args()
 
     runner = Runner(args)

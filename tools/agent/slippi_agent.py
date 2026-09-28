@@ -239,7 +239,7 @@ class Runner:
 
             ns = types.SimpleNamespace(roster=args.roster, weights=None, char=None, epsilon=args.epsilon,
                                        seed=args.seed, frame_lag=0, record=None, stats_json=None,
-                                       progress=0, quiet=args.quiet)
+                                       progress=0, quiet=args.quiet, gomi=args.gomi)
             self.classic = classic_agent.Runner(ns)
         import melee
         self.melee = melee
@@ -276,6 +276,8 @@ class Runner:
             if new_frames:
                 latest = new_frames[-1]
             if not st.in_fight:
+                if in_fight and mode == "classic":
+                    self.classic.match_over(st)
                 in_fight = False
                 mode = None
                 if not released:
@@ -310,6 +312,9 @@ class Runner:
         me = st.fighters[port]
         if not me.present:
             return None
+        if self.classic is not None and self.classic.gomi_plays(me.ckind):
+            self.classic.match_start(st, port)  # Gomihyu, whichever brain is chosen
+            return "classic"
         if latest is not None and (port + 1) in latest.players:
             ports = sorted(latest.players)
             character = latest.players[port + 1].character
@@ -323,7 +328,7 @@ class Runner:
         elif self.args.brain != "classic":
             self.log("no Slippi events from the game this match: slippi-ai cannot see it")
         if (self.classic is not None and self.args.brain != "slippi"
-                and me.ckind in self.classic.roster):
+                and self.classic.plays(me.ckind)):
             self.classic.match_start(st, port)
             return "classic"
         self.log(self.uncovered_message(me.ckind, port))
@@ -343,6 +348,8 @@ class Runner:
 
     def close(self):
         self.brain.stop()
+        if self.classic is not None:
+            self.classic.close()
 
 
 # ---------------------------------------------------------------- probe
@@ -407,6 +414,7 @@ def main():
     ap.add_argument("--once", action="store_true", help="exit when the game closes the connection")
     ap.add_argument("--connect-timeout", type=float, default=120.0)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--gomi", action="store_true", help="Gomihyu (gomi_brain.py, through Ollama) plays Mario")
     args = ap.parse_args()
 
     if args.probe is not None:
