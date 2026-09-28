@@ -31,6 +31,18 @@ sys.path.insert(0, str(HERE))
 
 import bridge  # noqa: E402
 
+# libmelee's Character names -> what the character select shows.
+NAMES = {
+    "CPTFALCON": "Captain Falcon", "DK": "Donkey Kong", "POPO": "Ice Climbers", "NANA": "Nana",
+    "YLINK": "Young Link", "DOC": "Dr. Mario", "GAMEANDWATCH": "Mr. Game & Watch",
+    "JIGGLYPUFF": "Jigglypuff", "GANONDORF": "Ganondorf",
+}
+
+
+def display(character):
+    return NAMES.get(character.name, character.name.title())
+
+
 AXIS_RADIUS = 80        # slippi_ai.controller_lib: raw stick values are -80..80
 TRIGGER_SPACING = 140   # raw analog L/R is 0..140
 
@@ -211,7 +223,7 @@ class Runner:
             self.classic = classic_agent.Runner(ns)
         import melee
         self.melee = melee
-        names = ", ".join(sorted(c.name.title() for c in self.brain.characters))
+        names = ", ".join(sorted(display(c) for c in self.brain.characters))
         self.log(f"slippi-ai model {Path(args.model).name}: {len(self.brain.characters)} characters "
                  f"({names}), {self.brain.summary.delay} frames of delay")
 
@@ -280,7 +292,7 @@ class Runner:
             others = [p for p in ports if p != port + 1]
             if self.args.brain != "classic" and self.brain.supports(character) and len(others) == 1:
                 self.brain.start_match(port + 1, others[0])
-                self.log(f"{character.name.title()}: slippi-ai plays P{port + 1}")
+                self.log(f"{display(character)}: slippi-ai plays P{port + 1}")
                 return "slippi"
             if self.brain.supports(character) and len(others) != 1:
                 self.log(f"slippi-ai plays one-on-one only ({len(ports)} players here)")
@@ -332,7 +344,7 @@ def probe(path, steps, async_inference):
             agent.stop()
     warm = sorted(times[min(30, len(times) - 1):])  # the first steps build and warm up the graph
     pct = lambda q: warm[min(len(warm) - 1, int(q * len(warm)))]  # noqa: E731
-    chars = ", ".join(sorted(c.name.title() for c in summary.characters))
+    chars = ", ".join(sorted(display(c) for c in summary.characters))
     print(f"model: {path}")
     print(f"type: {summary.type.name.lower()}, delay {summary.delay} frames, "
           f"{len(summary.characters)} characters: {chars}")

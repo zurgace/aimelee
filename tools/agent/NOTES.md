@@ -135,7 +135,12 @@ The delay18 agents (6 steps, 18 frames; Puff 4) are only picked when they are th
 
   So play uses `--async-inference`.
 
-**Unverified until run on a real machine:** medium-v2's characters and speed (`play.py` prints both on first use), and the stream from the real game.
+**medium-v2 on a real machine** (Ryzen 7 2700X, CPU, first `play.py` run):
+- An RL (self-play) model, 21 frames of delay.
+- 12 characters: Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik, Yoshi. Being self-play, it was trained against those same 12.
+- Load 12.2 s. Async step paced at 60 Hz: p50 0.19 ms, p99 10.4 ms, max 12.1 ms.
+
+**Unverified:** a real match with the game's own stream (the first match logs `slippi: <Character>: slippi-ai plays P2`).
 
 ## Checks to run on your machine
 

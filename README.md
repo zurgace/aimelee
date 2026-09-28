@@ -324,7 +324,7 @@ The game opens its own window, and the terminal keeps the agent's log: match sta
   - its own Python 3.12 environment (`tools/agent/slippi-env`, about 2.5 GB, a while to download);
   - the "medium-v2" model from slippi-ai's Dropbox.
 
-  It then times one model step on your machine and prints the characters the model plays. slippi-ai plays every character its model covers. For any other character, the 2017 agents below play P2.
+  It then times one model step on your machine and prints the characters the model plays. medium-v2 plays 12: Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik and Yoshi. For any other character, the 2017 agents below play P2 where one exists (Ganondorf and Roy as stand-ins); otherwise P2 stands still.
   - `--brain classic` always uses the 2017 agents; `--brain slippi` only slippi-ai.
   - `--slippi-model <file>` uses another model from [slippi-ai's released models](https://www.dropbox.com/scl/fo/mg916t9exid4stqmx2bjf/AD2oysY7SbTa6N0u7j75-SA?rlkey=baqxnfxg2uytvcz62w9o8mwzt&st=eil5kcql&dl=0).
   - If the download fails, save medium-v2 as `tools/agent/weights/slippi/medium-v2` yourself.
