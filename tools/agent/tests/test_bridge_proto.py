@@ -67,8 +67,13 @@ class BridgeProtoTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
+    transport = "unix"
+
     def run_game(self, ticks, timeout_us):
-        sock = Path(self.tmp.name) / f"b{ticks}.sock"
+        if self.transport == "tcp":
+            sock = bridge.free_tcp_address()
+        else:
+            sock = Path(self.tmp.name) / f"b{ticks}.sock"
         proc = subprocess.Popen([str(self.exe), str(sock), str(ticks), str(timeout_us)],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         return sock, proc
@@ -148,6 +153,20 @@ class BridgeProtoTest(unittest.TestCase):
                 f.write(p)
         ticks = [st.tick for st in bridge.read_record(path)]
         self.assertEqual(ticks, [1, 2, 3])
+
+
+class BridgeProtoTcpTest(BridgeProtoTest):
+    """The same over loopback TCP, the transport Windows uses."""
+
+    transport = "tcp"
+
+    def test_address_forms(self):
+        import socket
+        self.assertEqual(bridge.parse_address("tcp:47101"), (socket.AF_INET, ("127.0.0.1", 47101)))
+        self.assertEqual(bridge.parse_address("tcp:127.0.0.1:5"), (socket.AF_INET, ("127.0.0.1", 5)))
+        for bad in ("tcp:", "tcp:x", "tcp:70000", "tcp:0"):
+            with self.assertRaises(ValueError):
+                bridge.parse_address(bad)
 
 
 if __name__ == "__main__":

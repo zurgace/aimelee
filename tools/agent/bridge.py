@@ -221,10 +221,13 @@ class BridgeClient:
     def _connect(self, timeout):
         deadline = time.monotonic() + timeout
         last_err = None
+        family, target = parse_address(self.path)
         while True:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock = socket.socket(family, socket.SOCK_STREAM)
             try:
-                sock.connect(self.path)
+                sock.connect(target)
+                if family == socket.AF_INET:
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.sock = sock
                 break
             except OSError as e:
@@ -304,8 +307,36 @@ class BridgeClient:
         self.close()
 
 
+DEFAULT_TCP = "tcp:127.0.0.1:47101"
+
+
 def default_socket_path():
-    return os.environ.get("MELEE_AGENT_SOCKET") or "/tmp/melee-agent.sock"
+    """MELEE_AGENT_SOCKET if set; else a Unix socket, or loopback TCP on Windows
+    (whose Python has no AF_UNIX)."""
+    if os.environ.get("MELEE_AGENT_SOCKET"):
+        return os.environ["MELEE_AGENT_SOCKET"]
+    return DEFAULT_TCP if os.name == "nt" else "/tmp/melee-agent.sock"
+
+
+def parse_address(addr):
+    """(socket family, connect target) for a bridge address, the same forms
+    the game accepts: 'tcp:<port>', 'tcp:<host>:<port>' or a Unix socket path."""
+    if addr.startswith("tcp:"):
+        rest = addr[4:]
+        host, _, port = rest.rpartition(":")
+        if not port.isdigit() or not 0 < int(port) < 65536:
+            raise ValueError(f"bad bridge address {addr!r}: want tcp:<port> or tcp:127.0.0.1:<port>")
+        return socket.AF_INET, (host or "127.0.0.1", int(port))
+    if not hasattr(socket, "AF_UNIX"):
+        raise ValueError(f"{addr!r}: this Python has no Unix sockets; use tcp:127.0.0.1:<port>")
+    return socket.AF_UNIX, addr
+
+
+def free_tcp_address():
+    """A loopback TCP bridge address with a port nothing is listening on."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return f"tcp:127.0.0.1:{s.getsockname()[1]}"
 
 
 # Recording format written by dump_state.py --record: a 16-byte file header

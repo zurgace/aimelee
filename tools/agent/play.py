@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """One command: start melee-pc with the agent bridge on and Phillip on a port.
 
-    python3 tools/agent/play.py --iso /path/to/GALE01.iso
+    python3 tools/agent/play.py              # Linux, from the repository
+    py ai-melee\\play.py                      # Windows, from the AI-Melee folder
+                                             # (or double-click Play AI-Melee.bat)
 
 That plays FalconFalconBF on P2: pick Captain Falcon for yourself (P1, the
 keyboard, or a gamepad on port 1), set P2 to HMN Captain Falcon (P2 reads as
@@ -10,9 +12,20 @@ on to HMN), choose Battlefield, and play. The agent takes P2 once the match
 starts and lets go when it ends; the game never waits on it for more than
 the timeout, and carries on if it dies (play.py restarts it).
 
+What it finds by itself:
+  the game      build/melee in a checkout, or melee.exe beside the ai-melee
+                folder of a Windows download (--melee to point elsewhere)
+  Phillip       ../phillip beside the checkout, or phillip / phillip-master
+                inside the AI-Melee folder (--phillip)
+  your disc     --iso, else $MELEE_DISC, else the one picked last time, else
+                a file dialog asks (the choice is kept in settings.json)
+  the weights   exported from Phillip's checkpoint on first use with
+                TensorFlow 2.13 through uv (a throwaway Python 3.11); after
+                that only numpy is needed
+
 Options:
   --agent NAME       any agent under <phillip>/agents (default FalconFalconBF);
-                     list them with tools/agent/list_agents.py
+                     list them with list_agents.py
   --port N           the port the agent plays (1-4, default 2)
   --delay N          run the agent with N network steps of action delay, as
                      Phillip's --delay did (its weights are padded to fit)
@@ -24,17 +37,17 @@ Options:
                      (debug VS, both ports human, the agent's stage)
   --record FILE      record every state the agent sees (dump_state format;
                      verify_model.py --record replays it through Phillip)
+  --tcp              use loopback TCP instead of a Unix socket (always on
+                     Windows, whose Python has no Unix sockets)
 
 The bridge serves one client at a time and a new connection replaces the
 old one, so record through --record rather than running dump_state.py
 next to a playing agent.
-
-Weights: the first time, the agent is exported from Phillip's checkpoint with
-TensorFlow 2.13 through uv (a throwaway Python 3.11 environment); after that
-only numpy is needed. Without uv, run export_weights.py yourself.
 """
 
 import argparse
+import importlib.util
+import json
 import os
 import shutil
 import signal
@@ -45,12 +58,106 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parents[1]  # the repository, when run from a checkout
+BUNDLE = HERE.parent    # the AI-Melee folder, when run from a Windows download
+SETTINGS = HERE / "settings.json"
+WINDOWS = os.name == "nt"
 sys.path.insert(0, str(HERE))
 
+import bridge  # noqa: E402
 import phillip_obs  # noqa: E402  (no numpy needed at import)
 
 UV_EXPORT = ["--python", "3.11", "--with", "tensorflow-cpu==2.13.*", "--with", "attrs"]
+PIP = "py -m pip install" if WINDOWS else "python3 -m pip install"
+
+
+def fail(msg):
+    print(f"\nplay: {msg}\n", file=sys.stderr)
+    sys.exit(1)
+
+
+def load_settings():
+    try:
+        return json.loads(SETTINGS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(settings):
+    try:
+        SETTINGS.write_text(json.dumps(settings, indent=1))
+    except OSError:
+        pass  # a read-only folder just means asking again next time
+
+
+def find_melee(explicit):
+    if explicit:
+        return Path(explicit)
+    names = ["melee.exe", "melee"] if WINDOWS else ["melee", "melee.exe"]
+    for d in (ROOT / "build", BUNDLE, BUNDLE.parent):
+        for n in names:
+            if (d / n).is_file():
+                return d / n
+    fail("cannot find the game. From a checkout build it first (cmake -B build -G Ninja && "
+         "ninja -C build); on Windows keep the ai-melee folder inside the unzipped AI-Melee "
+         "folder, next to melee.exe. Or pass --melee <path to melee(.exe)>.")
+
+
+def find_phillip(explicit, agent):
+    candidates = [Path(explicit)] if explicit else [
+        ROOT.parent / "phillip", BUNDLE / "phillip", BUNDLE / "phillip-master",
+        BUNDLE.parent / "phillip", BUNDLE.parent / "phillip-master"]
+    # Windows' Extract All makes phillip-master\phillip-master.
+    candidates += [c / c.name for c in candidates]
+    for c in candidates:
+        if (c / "agents" / agent / "params").is_file():
+            return c
+    where = "\n  ".join(str(c) for c in candidates)
+    fail(f"cannot find Phillip's agent '{agent}'. Looked in:\n  {where}\n"
+         "Get it from https://github.com/vladfi1/phillip (git clone, or Code > Download ZIP and "
+         "extract it next to this folder), or pass --phillip <folder>.")
+
+
+def pick_disc_dialog():
+    try:
+        import tkinter
+        from tkinter import filedialog
+    except ImportError:
+        return None
+    try:
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title="Choose your Super Smash Bros. Melee disc image (NTSC-U 1.02)",
+            filetypes=[("Disc images", "*.iso *.gcm *.ciso *.rvz"), ("All files", "*.*")])
+        root.destroy()
+    except Exception:  # noqa: BLE001 - no display, no dialog
+        return None
+    return path or None
+
+
+def find_disc(explicit, settings):
+    for src in (explicit, os.environ.get("MELEE_DISC"), settings.get("disc")):
+        if src and Path(src).is_file():
+            return Path(src)
+    print("play: which disc image? (a file dialog is open; it may be behind this window)", flush=True)
+    picked = pick_disc_dialog()
+    if picked and Path(picked).is_file():
+        settings["disc"] = str(Path(picked).resolve())
+        save_settings(settings)
+        return Path(picked)
+    fail("no disc image. Pass --iso <path to your NTSC-U 1.02 .iso>"
+         + (" (or set MELEE_DISC)." if not WINDOWS else "."))
+
+
+def uv_command():
+    uv = shutil.which("uv")
+    if uv:
+        return [uv]
+    if importlib.util.find_spec("uv") is not None:  # pip-installed, Scripts not on PATH
+        return [sys.executable, "-m", "uv"]
+    return None
 
 
 def weights_path(agent, delay):
@@ -62,23 +169,26 @@ def ensure_weights(args):
     out = weights_path(args.agent, args.delay)
     if out.exists():
         return out
-    cmd = [str(HERE / "export_weights.py"), "--phillip", args.phillip, "--agent", args.agent, "--out", str(out)]
+    cmd = [str(HERE / "export_weights.py"), "--phillip", str(args.phillip), "--agent", args.agent,
+           "--out", str(out)]
     if args.delay is not None:
         cmd += ["--delay", str(args.delay)]
-    uv = shutil.which("uv")
+    uv = uv_command()
     if uv is None:
-        sys.exit(f"{out} not found and uv is not installed. Export it once with TensorFlow 2.13 "
-                 f"(Python 3.8-3.11):\n  python3.11 {' '.join(cmd)}")
-    print(f"play: exporting {args.agent} with TensorFlow 2.13 (first run only; downloads ~200 MB) ...",
-          flush=True)
-    subprocess.run([uv, "run", *UV_EXPORT, *cmd], check=True)
+        fail(f"the agent's weights are not exported yet, and that needs uv: {PIP} uv"
+             + ("" if WINDOWS else "  (Arch/CachyOS: sudo pacman -S uv)"))
+    print(f"play: exporting {args.agent} from Phillip's checkpoint with TensorFlow 2.13.\n"
+          "      First run only: uv downloads Python 3.11 and TensorFlow (~250 MB), "
+          "which takes a few minutes ...", flush=True)
+    try:
+        subprocess.run([*uv, "run", *UV_EXPORT, *cmd], check=True)
+    except subprocess.CalledProcessError:
+        fail("the export failed (see above). Check your internet connection and run play again.")
     return out
 
 
-def agent_params(args):
-    import json
-    p = Path(args.phillip) / "agents" / args.agent / "params"
-    with open(p) as f:
+def agent_params(phillip, agent):
+    with open(Path(phillip) / "agents" / agent / "params") as f:
         params = json.load(f)
     params.update(params.get("agent", {}))
     return params
@@ -86,9 +196,9 @@ def agent_params(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default=os.environ.get("MELEE_DISC"), help="your NTSC-U 1.02 disc image")
-    ap.add_argument("--melee", default=str(ROOT / "build" / "melee"))
-    ap.add_argument("--phillip", default=str(ROOT.parent / "phillip"), help="phillip checkout (default ../phillip)")
+    ap.add_argument("--iso", help="your NTSC-U 1.02 disc image")
+    ap.add_argument("--melee", help="the game binary (found automatically)")
+    ap.add_argument("--phillip", help="phillip checkout (found automatically)")
     ap.add_argument("--agent", default="FalconFalconBF")
     ap.add_argument("--port", type=int, default=2, choices=[1, 2, 3, 4])
     ap.add_argument("--delay", type=int)
@@ -99,31 +209,34 @@ def main():
     ap.add_argument("--seed", type=int)
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--record", type=Path)
+    ap.add_argument("--tcp", action="store_true")
     ap.add_argument("--opponent", help="with --quick: the other port's character (Phillip name, "
                                        "default the agent's own)")
     args = ap.parse_args()
 
-    if not args.iso or not Path(args.iso).exists():
-        sys.exit("pass --iso <your disc image> (or set MELEE_DISC)")
-    if not Path(args.melee).exists():
-        sys.exit(f"{args.melee} not found: cmake -B build -G Ninja && ninja -C build")
     try:
         import numpy  # noqa: F401
     except ImportError:
-        sys.exit("the agent needs numpy: your distribution's package (Arch/CachyOS: "
-                 "pacman -S python-numpy), or python3 -m venv .venv && .venv/bin/pip install numpy "
-                 "and run play.py with .venv/bin/python")
+        fail(f"the agent needs numpy: {PIP} numpy"
+             + ("" if WINDOWS else "  (Arch/CachyOS: sudo pacman -S python-numpy)"))
+    settings = load_settings()
+    melee = find_melee(args.melee)
+    args.phillip = find_phillip(args.phillip, args.agent)
+    disc = find_disc(args.iso, settings)
     weights = ensure_weights(args)
 
-    sock_dir = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
-    sock = str(Path(sock_dir) / f"melee-agent-{os.getpid()}.sock")
+    if WINDOWS or args.tcp:
+        sock = bridge.free_tcp_address()
+    else:
+        sock_dir = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+        sock = str(Path(sock_dir) / f"melee-agent-{os.getpid()}.sock")
     env = dict(os.environ)
     env.update(MELEE_AGENT_SOCKET=sock, MELEE_AGENT_PORT=str(args.port), MELEE_AGENT_SYNC=args.sync,
                MELEE_AGENT_TIMEOUT_MS=str(args.timeout_ms))
     if args.quick:
         if args.port > 2:
-            sys.exit("--quick seats ports 1 and 2 only; use --port 1 or 2")
-        params = agent_params(args)
+            fail("--quick seats ports 1 and 2 only; use --port 1 or 2")
+        params = agent_params(args.phillip, args.agent)
         me = phillip_obs.CKIND_BY_PHILLIP_NAME.get(params.get("char"), 0)
         them = phillip_obs.CKIND_BY_PHILLIP_NAME.get(args.opponent or params.get("char"), me)
         chars = [them, them]
@@ -133,7 +246,8 @@ def main():
         if stage is not None and stage != 0x20:  # the debug match is on Final Destination already
             env["MELEE_DEBUG_VS_STAGE"] = str(stage)
 
-    game = subprocess.Popen([args.melee, args.iso], cwd=str(ROOT), env=env)
+    print(f"play: {melee} with {args.agent} on P{args.port}; disc {disc}", flush=True)
+    game = subprocess.Popen([str(melee), str(disc)], cwd=str(melee.parent), env=env)
     agent_cmd = [sys.executable, str(HERE / "agent.py"), "--weights", str(weights), "--socket", sock,
                  "--epsilon", str(args.epsilon), "--frame-lag", str(args.frame_lag)]
     if args.seed is not None:
