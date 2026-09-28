@@ -1,0 +1,3 @@
+# Exported agent weights (tools/agent/export_weights.py): derived from phillip
+# checkpoints, regenerated locally, never committed.
+weights/
