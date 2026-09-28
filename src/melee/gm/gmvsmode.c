@@ -209,6 +209,30 @@ void onEnterDebugVs(GameModeState* state)
             start->players[i].slot_type = Gm_PKind_Cpu;
         }
     }
+    /* MELEE_DEBUG_VS_CHARS=<ckind1>,<ckind2>: the two fighters of the debug
+     * match (CharacterKind values; 0 is Captain Falcon), so the agent bridge
+     * checks (tools/agent/check_*.py) boot straight into the matchup an
+     * agent was trained on. A ditto puts P2 in its second costume, as the
+     * CSS would. */
+    if (getenv("MELEE_DEBUG_VS_CHARS") != NULL) {
+        const char* chars = getenv("MELEE_DEBUG_VS_CHARS");
+        const char* comma = strchr(chars, ',');
+        int c1 = atoi(chars);
+        int c2 = comma != NULL ? atoi(comma + 1) : c1;
+        if (c1 >= 0 && c1 < CKind_Playable_Count && c2 >= 0 &&
+            c2 < CKind_Playable_Count)
+        {
+            start->players[0].ckind = c1;
+            start->players[1].ckind = c2;
+            if (c1 == c2) {
+                start->players[1].color = 1;
+            }
+        } else {
+            OSReport("MELEE_DEBUG_VS_CHARS: '%s' is not two CharacterKind "
+                     "values 0-%d\n",
+                     chars, CKind_Playable_Count - 1);
+        }
+    }
     /* MELEE_DEBUG_VS_STOCKS=<n>: a stock match instead of an untimed time
      * one, so a run can end on GAME! with stocks the replay (src/pc/slp.c)
      * must carry. */
