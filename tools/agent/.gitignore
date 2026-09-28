@@ -3,3 +3,5 @@
 weights/
 # play.py remembers the disc you picked here (per machine)
 settings.json
+# slippi-ai's Python environment (play.py builds it from slippi-requirements.txt)
+slippi-env/

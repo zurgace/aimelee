@@ -5,9 +5,11 @@
     py ai-melee\\play.py                      # Windows, from the AI-Melee folder
                                              # (or double-click Play AI-Melee.bat)
 
-Phillip plays P2 as whichever character P2 has: Captain Falcon, Fox, Falco,
-Marth, Peach or Sheik get their own agent, Ganondorf and Roy borrow
-Falcon's and Marth's, anything else stands still (set it to CPU instead).
+Phillip plays P2 as whichever character P2 has. The newer Phillip
+(vladfi1/slippi-ai, the bot on Slippi) plays every character its model
+covers; for the rest the 2017 agents do: Captain Falcon, Fox, Falco, Marth,
+Peach or Sheik get their own, Ganondorf and Roy borrow Falcon's and Marth's,
+anything else stands still (set it to CPU instead).
 Take P1 (the keyboard, or a gamepad on port 1), set P2 to HMN and pick its
 character (P2 reads as plugged in; with P1's cursor: toggle P2's door to
 CPU, pick the character, toggle on to HMN), choose a stage (most agents
@@ -24,11 +26,19 @@ What it finds by itself:
                 inside the AI-Melee folder (--phillip)
   your disc     --iso, else $MELEE_DISC, else the one picked last time, else
                 a file dialog asks (the choice is kept in settings.json)
+  slippi-ai     on first use: its own Python 3.12 environment (slippi-env/,
+                about 2.5 GB, from slippi-requirements.txt) and the medium-v2
+                model; the model is timed once (weights/slippi/*.probe.txt)
   the weights   every agent's, exported from Phillip's checkpoints on first
                 use with TensorFlow 2.13 through uv (a throwaway Python
                 3.11); after that only numpy is needed
 
 Options:
+  --brain B          auto (default): slippi-ai where its model plays the
+                     character, the 2017 agents elsewhere; slippi: slippi-ai
+                     only; classic: the 2017 agents only
+  --slippi-model F   a slippi-ai model file (default: medium-v2, downloaded on
+                     first use into weights/slippi/)
   --reaction N       0 (default): each character's strongest agent; 1 or 2:
                      prefer agents trained to react 3 or 6 frames late, where
                      they exist (Marth, Peach, Sheik)
@@ -224,6 +234,92 @@ def ensure_roster(args):
     return path
 
 
+SLIPPI_ENV = HERE / "slippi-env"
+SLIPPI_REQUIREMENTS = HERE / "slippi-requirements.txt"
+SLIPPI_MODELS = {
+    # The model slippi-ai's README offers for local play (12 characters).
+    "medium-v2": "https://www.dropbox.com/scl/fi/lpi9krfei1knfvfw7up7v/medium-v2"
+                 "?rlkey=qmah3qfz5anwva93x48zcx01k&st=sxo8hbeb&dl=1",
+}
+SLIPPI_FOLDER = ("https://www.dropbox.com/scl/fo/mg916t9exid4stqmx2bjf/"
+                 "AD2oysY7SbTa6N0u7j75-SA?rlkey=baqxnfxg2uytvcz62w9o8mwzt&st=eil5kcql&dl=0")
+
+
+def slippi_python():
+    return SLIPPI_ENV / ("Scripts/python.exe" if WINDOWS else "bin/python")
+
+
+def ensure_slippi_env():
+    """slippi-ai's Python 3.12 environment, from slippi-requirements.txt. Rebuilt
+    when that file changes. None when it cannot be made."""
+    import hashlib
+
+    want = hashlib.sha256(SLIPPI_REQUIREMENTS.read_bytes()).hexdigest()
+    stamp = SLIPPI_ENV / "requirements.sha256"
+    if slippi_python().exists() and stamp.exists() and stamp.read_text().strip() == want:
+        return slippi_python()
+    uv = uv_command()
+    if uv is None:
+        print(f"play: slippi-ai needs uv to set up its environment: {PIP} uv", flush=True)
+        return None
+    print("play: setting up the newer Phillip (slippi-ai): Python 3.12, TensorFlow and slippi-ai\n"
+          "      into tools/agent/slippi-env (about 2.5 GB). First run only; this takes a while ...",
+          flush=True)
+    try:
+        if not slippi_python().exists():
+            subprocess.run([*uv, "venv", "-q", "--python", "3.12", str(SLIPPI_ENV)], check=True)
+        subprocess.run([*uv, "pip", "install", "--python", str(slippi_python()),
+                        "-r", str(SLIPPI_REQUIREMENTS)], check=True)
+    except subprocess.CalledProcessError:
+        print("play: setting up slippi-ai failed (see above)", flush=True)
+        return None
+    stamp.write_text(want)
+    return slippi_python()
+
+
+def ensure_slippi_model(explicit):
+    """The model file: --slippi-model, else medium-v2 (downloaded once)."""
+    if explicit:
+        path = Path(explicit)
+        return path if path.is_file() else None
+    path = HERE / "weights" / "slippi" / "medium-v2"
+    if path.is_file():
+        return path
+    import urllib.request
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_suffix(".part")
+    print("play: downloading slippi-ai's medium-v2 model from Dropbox ...", flush=True)
+    try:
+        with urllib.request.urlopen(SLIPPI_MODELS["medium-v2"], timeout=60) as r, open(part, "wb") as f:
+            shutil.copyfileobj(r, f, 1 << 20)
+        part.replace(path)
+    except OSError as e:
+        part.unlink(missing_ok=True)
+        print(f"play: could not download it ({e}). Get medium-v2 from {SLIPPI_MODELS['medium-v2']}\n"
+              f"      (or another model from {SLIPPI_FOLDER})\n"
+              f"      and save it as {path}, or pass --slippi-model <file>.", flush=True)
+        return None
+    return path
+
+
+def probe_slippi(python, model):
+    """Time the model once on this machine; the result is kept beside it."""
+    out = model.with_name(model.name + ".probe.txt")
+    if not out.exists():
+        print(f"play: timing {model.name} on this machine (once) ...", flush=True)
+        r = subprocess.run([str(python), str(HERE / "slippi_agent.py"), "--probe", str(model),
+                            "--async-inference"], capture_output=True, text=True)
+        if r.returncode != 0:
+            print(r.stderr[-2000:], file=sys.stderr)
+            return False
+        out.write_text(r.stdout)
+    for line in out.read_text().splitlines():
+        if line.startswith(("type:", "load:")):
+            print(f"play: slippi-ai {line}", flush=True)
+    return True
+
+
 def agent_params(phillip, agent):
     with open(Path(phillip) / "agents" / agent / "params") as f:
         params = json.load(f)
@@ -237,6 +333,8 @@ def main():
     ap.add_argument("--melee", help="the game binary (found automatically)")
     ap.add_argument("--phillip", help="phillip checkout (found automatically)")
     ap.add_argument("--agent", help="one agent for every character (default: the roster)")
+    ap.add_argument("--brain", choices=["auto", "slippi", "classic"], default="auto")
+    ap.add_argument("--slippi-model", help="a slippi-ai model file (default: medium-v2)")
     ap.add_argument("--reaction", type=int, default=0, choices=[0, 1, 2])
     ap.add_argument("--port", type=int, default=2, choices=[1, 2, 3, 4])
     ap.add_argument("--delay", type=int)
@@ -263,10 +361,23 @@ def main():
     melee = find_melee(args.melee)
     args.phillip = find_phillip(args.phillip, args.agent or "FalconFalconBF")
     disc = find_disc(args.iso, settings)
+    python = sys.executable
+    agent_script = HERE / "agent.py"
     if args.agent is not None:
         agent_source = ["--weights", str(ensure_weights(args))]
     else:
         agent_source = ["--roster", str(ensure_roster(args))]
+        if args.brain != "classic":
+            slippi = ensure_slippi_env()
+            model = ensure_slippi_model(args.slippi_model) if slippi else None
+            if slippi and model and probe_slippi(slippi, model):
+                python, agent_script = str(slippi), HERE / "slippi_agent.py"
+                agent_source = ["--model", str(model), "--brain", args.brain, "--async-inference",
+                                *agent_source]
+            elif args.brain == "slippi":
+                fail("slippi-ai is not available (see above)")
+            else:
+                print("play: slippi-ai is not available (see above): the 2017 agents play", flush=True)
 
     if WINDOWS or args.tcp:
         sock = bridge.free_tcp_address()
@@ -295,11 +406,14 @@ def main():
     who = args.agent or "Phillip's agents"
     print(f"play: {melee} with {who} on P{args.port}; disc {disc}", flush=True)
     game = subprocess.Popen([str(melee), str(disc)], cwd=str(melee.parent), env=env)
-    agent_cmd = [sys.executable, str(HERE / "agent.py"), *agent_source, "--socket", sock,
-                 "--epsilon", str(args.epsilon), "--frame-lag", str(args.frame_lag)]
+    agent_cmd = [python, str(agent_script), *agent_source, "--socket", sock, "--epsilon", str(args.epsilon)]
+    if agent_script.name == "agent.py":
+        agent_cmd += ["--frame-lag", str(args.frame_lag)]
     if args.seed is not None:
         agent_cmd += ["--seed", str(args.seed)]
     if args.record is not None:
+        if agent_script.name != "agent.py":
+            fail("--record works with the 2017 agents only: add --brain classic")
         agent_cmd += ["--record", str(args.record)]
     agent = subprocess.Popen(agent_cmd)
     restarts = 0
