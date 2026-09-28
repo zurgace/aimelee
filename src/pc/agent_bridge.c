@@ -42,6 +42,14 @@ static bool s_match_start; /* ...and is the first tick of it */
 static uint32_t s_match_tick;
 static bool s_pad_fresh;                     /* the tick has a queued pad sample to consume */
 static AgentPad s_consumed[AGENT_MAX_PORTS]; /* what the tick consumes, per port */
+static AgentPad s_agent_pad;                 /* the agent's newest pad, held between inputs */
+static bool s_have_agent_pad;
+static bool s_tick_agent; /* this tick consumed the agent's pad on its port */
+static bool s_tick_late;  /* ...and it was not the input for this tick */
+static uint32_t s_late_total;
+/* Per fight, for the summary line when it ends. */
+static uint32_t s_fight_driven, s_fight_late;
+static bool s_warned_device;
 
 static void shutdown_link(void) {
     agent_link_close();
@@ -214,19 +222,101 @@ static void capture_fighter(AgentFighter* f, int port) {
     f->smash_state = (uint32_t)fp->smash_attrs.state;  /* fp+2114 */
 }
 
+static void pad_from_wire(PADStatus* p, const AgentPad* w) {
+    memset(p, 0, sizeof *p);
+    p->button = w->button;
+    p->stickX = w->stick_x;
+    p->stickY = w->stick_y;
+    p->substickX = w->cstick_x;
+    p->substickY = w->cstick_y;
+    p->triggerLeft = w->trigger_l;
+    p->triggerRight = w->trigger_r;
+    p->analogA = w->analog_a;
+    p->analogB = w->analog_b;
+    p->err = PAD_ERR_NONE;
+}
+
+static void fight_over(void) {
+    if (s_fight_driven > 0) {
+        const AgentLinkStats* st = agent_link_stats();
+        pc_log_line("agent: fight over: drove port %d for %u ticks, %u late (%.2f%%); "
+                    "%u stale inputs, %u states dropped so far",
+            s_port + 1, s_fight_driven, s_fight_late, 100.0 * s_fight_late / (double)s_fight_driven,
+            st->inputs_stale, st->states_dropped);
+    }
+    s_fight_driven = 0;
+    s_fight_late = 0;
+    s_have_agent_pad = false;
+    s_warned_device = false;
+}
+
+/* Put the agent's pad for this tick into the agent port's queue slot, as
+ * netplay's write_head does for a remote player. Outside a fight, or with
+ * no agent driving, an unplugged agent port reads as a connected neutral
+ * pad instead: the CSS only lets a door be switched to HMN when its port
+ * has a controller (mncharsel.c), and this is how you seat the agent. */
+static void inject(PADStatus* head) {
+    PADStatus* mine = &head[s_port];
+    static const AgentPad neutral;
+    s_tick_agent = false;
+    s_tick_late = false;
+    if (!s_fight) {
+        AgentPad unused;
+        agent_link_take_input(s_tick, false, &unused); /* menu inputs are not queued up */
+    } else if (agent_link_active()) {
+        AgentPad pad;
+        const AgentTake took = agent_link_take_input(s_tick, true, &pad);
+        if (took != AGENT_TAKE_NONE) {
+            s_agent_pad = pad;
+            s_have_agent_pad = true;
+        }
+        if (mine->err == PAD_ERR_NONE && !s_warned_device &&
+            (mine->button != 0 || mine->stickX != 0 || mine->stickY != 0))
+        {
+            s_warned_device = true;
+            pc_log_line(
+                "agent: port %d also has a controller in use; the agent overrides it", s_port + 1);
+        }
+        pad_from_wire(mine, s_have_agent_pad ? &s_agent_pad : &neutral);
+        s_tick_agent = true;
+        s_tick_late = took != AGENT_TAKE_ON_TIME;
+        s_fight_driven++;
+        if (s_tick_late) {
+            s_late_total++;
+            s_fight_late++;
+        }
+        return;
+    }
+    if (mine->err != PAD_ERR_NONE) {
+        pad_from_wire(mine, &neutral);
+    }
+}
+
 void pc_agent_pre_tick(void) {
     if (!usable()) {
         return;
     }
     s_tick++;
     const bool fight = in_fight();
+    if (s_fight && !fight) {
+        fight_over();
+    }
     s_match_start = fight && !s_fight;
     s_match_tick = s_match_start || !fight ? 0 : s_match_tick + 1;
     s_fight = fight;
+    if (s_match_start) {
+        s_have_agent_pad = false; /* nothing carries over from the last fight */
+    }
     agent_link_poll();
+    if (!agent_link_active()) {
+        s_have_agent_pad = false;
+    }
 
     PADStatus* head = pad_head();
     s_pad_fresh = head != NULL;
+    if (head != NULL) {
+        inject(head);
+    }
     for (int i = 0; i < AGENT_MAX_PORTS; i++) {
         if (head != NULL) {
             pad_to_wire(&s_consumed[i], &head[i]);
@@ -255,6 +345,13 @@ void pc_agent_post_tick(uint64_t proc_mask) {
     if (s_pad_fresh) {
         st.flags |= AGENT_ST_PAD_FRESH;
     }
+    if (s_tick_agent) {
+        st.flags |= AGENT_ST_AGENT_INPUT;
+        if (s_tick_late) {
+            st.flags |= AGENT_ST_INPUT_LATE;
+        }
+    }
+    st.late_inputs = s_late_total;
     if (s_fight) {
         st.flags |= AGENT_ST_IN_FIGHT;
         if (s_match_start) {

@@ -38,9 +38,9 @@ KNEE_BEND = 0x18
 JUMPS = {0x19, 0x1A}
 ATTACK11 = 0x2C
 
-# match_tick -> key line for P1 (MELEE_KEY_FIFO, SDL scancode names; arrows = stick,
-# V = Y (jump), X = A).
-SCRIPT = [(200, "Right 400"), (330, "V 80"), (450, "X 60")]
+# replay frame (0 = GO!) -> key line for P1 (MELEE_KEY_FIFO, SDL scancode
+# names; arrows = stick, V = Y (jump), X = A).
+SCRIPT = [(30, "Right 400"), (160, "V 80"), (280, "X 60")]
 
 
 def run(args):
@@ -51,9 +51,11 @@ def run(args):
         report.check("bridge handshake", client.hello.proto_version == bridge.PROTO_VERSION,
                      f"melee-pc {client.hello.build}, agent port P{client.hello.agent_port + 1}")
         sent = {}
+        clock = harness.PlayClock()
 
         def on_state(st):
-            while script and st.in_fight and st.match_tick >= script[0][0]:
+            frame = clock.feed(st)
+            while script and frame is not None and frame >= script[0][0]:
                 at, line = script.pop(0)
                 game.keys(line)
                 sent[line] = st.tick
@@ -120,7 +122,7 @@ def run(args):
                          any(st.fighters[0].input.stick_x >= 79 for st in run_states)
                          and all(st.fighters[1].input.stick_x == 0 for st in run_states))
         else:
-            report.check("P1 run command sent", False, "the script never reached match tick 200")
+            report.check("P1 run command sent", False, "the script never reached frame 30 after GO!")
 
         t1 = sent.get("V 80")
         jump_states = [st for st in fight if t1 is not None and t1 <= st.tick <= t1 + 45]

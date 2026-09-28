@@ -187,6 +187,24 @@ def collect(client, on_state=None, idle_timeout=15.0):
     return states
 
 
+class PlayClock:
+    """The replay frame of the current fight, as the Slippi recorder numbers
+    it: -123 on the first tick the fighters run, +1 per tick they run, 0 at
+    GO! (before that nobody can act). None outside a fight / before then."""
+
+    START = -123
+
+    def __init__(self):
+        self.frame = None
+
+    def feed(self, st):
+        if not st.in_fight or st.match_start:
+            self.frame = None
+        if st.in_fight and st.fighters_ran:
+            self.frame = self.START if self.frame is None else self.frame + 1
+        return self.frame
+
+
 def fight_frames(states):
     """The states that are replay frames: in a fight with the fighters run.
     The .slp recorder numbers them -123, -122, ... in the same order."""

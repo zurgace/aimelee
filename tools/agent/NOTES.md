@@ -23,7 +23,28 @@ plan it started from is [PLAN.md](PLAN.md); where the two disagree, this file is
 - **Timing.** How many frames did Phillip's asynchronous Dolphin pipe actually add at play time? Our default is +1 tick (N → N+1). `--frame-lag` exists to experiment.
 - **CSS.** Can P2 be set to HMN and given a character from P1's cursor, and does the coin survive the CPU → N/A → HMN toggle? This needs your machine.
 
+## Checks to run on your machine
+
+The container can build and unit-test everything but cannot run the game (no disc, no GPU). Each check boots its own isolated run (a throwaway XDG_DATA_HOME, so your memory card is never touched) and prints PASS/FAIL per assertion. Paste the output back.
+
+```sh
+cmake -B build -G Ninja && ninja -C build
+python3 tools/agent/check_phase1.py --iso <disc>   # state export, cross-checked against the .slp recorder
+python3 tools/agent/check_phase2.py --iso <disc>   # injection on P2 while P1 plays, hits, disconnect
+python3 tools/agent/check_vanilla.py --iso <disc> --upstream ../melee-pc-upstream/build/melee
+```
+
+By hand, with the bridge on (`MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee <disc>`):
+
+- `python3 tools/agent/dump_state.py` prints the live state.
+- `python3 tools/agent/inject_script.py` walks, hops, jabs and shields P2 while you play P1.
+- **CSS:** P2 should read as plugged in. Try P1's cursor on P2's door toggle: CPU → pick Falcon → toggle to HMN. Does the character stay selected?
+
 ## Known gaps and divergences
+
+- **Full pad queue.** If the game falls five or more pad samples behind (a long hitch), the raw pad queue (qtype 0) merges the newest sample into the head the bridge just wrote, so the agent port can see one tick of its physical/neutral pad. Netplay pins qtype 2 for this; the bridge leaves the queue alone so it changes nothing for the human port.
+- **Blocking catch-up.** A lockstep wait blocks the game thread, and the pad alarm catches up afterwards (one extra tick next frame). The 4 ms timeout and degraded mode (after 30 consecutive misses) bound it; a numpy agent normally answers within the frame's render slack, so it never waits.
+- **Non-GCC platforms.** On Clang-built targets (Android, Apple, Windows ARM64), `co_attrs.max_jumps` would read byte-swapped from the `melee` target, the same latent issue slp.c has. Linux, the target here, builds everything with GCC.
 
 - **`hitstun_frames_left`** is the first 4 bytes of `Fighter::mv` read as a float, exactly as Phillip read `fp+0x2340`. It is exact in damage states. In other states it holds whatever the current state stored there, which on LP64 can differ from the GameCube (int endianness, re-laid-out views). Values are near zero in both cases.
 - **`character`** (used only by agents with `omit_char=false`) was the CSS door's `sel_icon` byte in Phillip. The door static is not reachable from `src/pc`, so we derive the icon from the CKind. Sheik maps to the Zelda icon, as she did on the CSS.
