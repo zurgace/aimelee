@@ -1,11 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Agent bridge: lets an external process (tools/agent, e.g. the Phillip AI)
  * watch the game and drive one controller port. Off unless
- * MELEE_AGENT_SOCKET=<path> is set; then the game listens on that AF_UNIX
- * socket, sends the state after every simulation tick and takes the agent
- * port's pad from the agent before the next one. Wire format: agent_proto.h.
+ * MELEE_AGENT_SOCKET is set; then the game listens on that socket, sends the
+ * state after every simulation tick and takes the agent port's pad from the
+ * agent before the next one. Wire format: agent_proto.h.
  *
- *   MELEE_AGENT_SOCKET=<path>     enable, listening on <path>
+ *   MELEE_AGENT_SOCKET=<path>     enable, listening on AF_UNIX <path> (POSIX)
+ *   MELEE_AGENT_SOCKET=tcp:127.0.0.1:<port> (or tcp:<port>)
+ *                                 enable, listening on loopback TCP (every
+ *                                 platform; the only form on Windows)
  *   MELEE_AGENT_PORT=<1-4>        the port the agent drives (default 2)
  *   MELEE_AGENT_SYNC=lockstep|async
  *                                 lockstep (default) waits up to the timeout

@@ -15,6 +15,8 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
@@ -41,6 +43,10 @@ void pc_log_line(const char* fmt, ...) {
     } while (0)
 
 static char s_path[108];
+/* The address the link listens on: s_path, or tcp:127.0.0.1:<s_port>. */
+static char s_addr[128];
+static bool s_tcp;
+static int s_port;
 
 static int64_t now_us(void) {
     struct timespec ts;
@@ -49,6 +55,17 @@ static int64_t now_us(void) {
 }
 
 static int client_connect(void) {
+    if (s_tcp) {
+        const int fd = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in in = {.sin_family = AF_INET, .sin_port = htons((uint16_t)s_port)};
+        in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (connect(fd, (const struct sockaddr*)&in, sizeof in) != 0) {
+            perror("connect");
+            close(fd);
+            return -1;
+        }
+        return fd;
+    }
     const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof addr);
@@ -122,7 +139,7 @@ static void client_send_input(
 
 static AgentLinkConfig config(uint32_t timeout_us, uint32_t degrade_after, int sync) {
     AgentLinkConfig c = {
-        .path = s_path,
+        .path = s_addr,
         .agent_port = 1,
         .sync_mode = sync,
         .timeout_us = timeout_us,
@@ -157,14 +174,16 @@ static void test_handshake_and_state(void) {
     AgentLinkConfig c = config(2000, 30, AGENT_SYNC_LOCKSTEP);
     EXPECT(agent_link_open(&c));
     agent_link_close(); /* leaves nothing behind */
-    struct stat sb;
-    EXPECT(stat(s_path, &sb) != 0);
-    /* a stale socket file from a crashed run is replaced */
-    const int stale = socket(AF_UNIX, SOCK_STREAM, 0);
-    struct sockaddr_un addr = {.sun_family = AF_UNIX};
-    strcpy(addr.sun_path, s_path);
-    EXPECT(bind(stale, (const struct sockaddr*)&addr, sizeof addr) == 0);
-    close(stale);
+    if (!s_tcp) {
+        struct stat sb;
+        EXPECT(stat(s_path, &sb) != 0);
+        /* a stale socket file from a crashed run is replaced */
+        const int stale = socket(AF_UNIX, SOCK_STREAM, 0);
+        struct sockaddr_un addr = {.sun_family = AF_UNIX};
+        strcpy(addr.sun_path, s_path);
+        EXPECT(bind(stale, (const struct sockaddr*)&addr, sizeof addr) == 0);
+        close(stale);
+    }
     EXPECT(agent_link_open(&c));
 
     const int fd = client_connect();
@@ -367,15 +386,17 @@ static void test_disconnect_and_errors(void) {
     memset(&st, 0, sizeof st);
     const uint32_t clients = agent_link_stats()->clients;
     t0 = now_us();
-    for (uint32_t i = 0; i < 5000; i++) {
+    /* until the buffers are full: a few hundred KB for AF_UNIX, megabytes
+     * for loopback TCP */
+    for (uint32_t i = 0; i < 200000 && agent_link_stats()->states_dropped < 100; i++) {
         st.tick = i;
         agent_link_send_state(&st);
     }
-    EXPECT(now_us() - t0 < 500000);
+    EXPECT(now_us() - t0 < 2000000);
     EXPECT(agent_link_stats()->states_dropped > 0);
     EXPECT(agent_link_connected() && agent_link_stats()->clients == clients);
     /* and the stream is still framed: drain it and parse every message */
-    static uint8_t all[4 << 20];
+    static uint8_t all[64 << 20];
     size_t total = 0;
     int64_t idle_since = now_us();
     while (now_us() - idle_since < 200000 && total < sizeof all) {
@@ -416,14 +437,58 @@ static void test_disconnect_and_errors(void) {
     agent_link_close();
 }
 
-int main(void) {
-    snprintf(s_path, sizeof s_path, "/tmp/agent_link_test_%d.sock", (int)getpid());
-    test_open_refuses_regular_file();
+static void test_tcp_addresses(void) {
+    fprintf(stderr, "tcp: loopback only, bad addresses refused\n");
+    static const char* bad[] = {"tcp:0.0.0.0:47000", "tcp:192.168.1.2:47000", "tcp:example.com:1",
+        "tcp:", "tcp:0", "tcp:70000", "tcp:12ab"};
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        snprintf(s_addr, sizeof s_addr, "%s", bad[i]);
+        AgentLinkConfig c = config(2000, 30, AGENT_SYNC_LOCKSTEP);
+        EXPECT(!agent_link_open(&c));
+    }
+    snprintf(s_addr, sizeof s_addr, "tcp:localhost:%d", s_port);
+    AgentLinkConfig c = config(2000, 30, AGENT_SYNC_LOCKSTEP);
+    EXPECT(agent_link_open(&c));
+    agent_link_close();
+    snprintf(s_addr, sizeof s_addr, "tcp:%d", s_port);
+    c = config(2000, 30, AGENT_SYNC_LOCKSTEP);
+    EXPECT(agent_link_open(&c));
+    agent_link_close();
+}
+
+/* A loopback port nothing listens on right now. */
+static int free_port(void) {
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in in = {.sin_family = AF_INET};
+    in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bind(fd, (const struct sockaddr*)&in, sizeof in);
+    socklen_t len = sizeof in;
+    getsockname(fd, (struct sockaddr*)&in, &len);
+    close(fd);
+    return ntohs(in.sin_port);
+}
+
+static void run_suite(void) {
     test_handshake_and_state();
     test_lockstep();
     test_async();
     test_disconnect_and_errors();
+}
+
+int main(void) {
+    snprintf(s_path, sizeof s_path, "/tmp/agent_link_test_%d.sock", (int)getpid());
+    fprintf(stderr, "== AF_UNIX %s\n", s_path);
+    snprintf(s_addr, sizeof s_addr, "%s", s_path);
+    test_open_refuses_regular_file();
+    run_suite();
     unlink(s_path);
+
+    s_tcp = true;
+    s_port = free_port();
+    fprintf(stderr, "== TCP 127.0.0.1:%d\n", s_port);
+    test_tcp_addresses();
+    snprintf(s_addr, sizeof s_addr, "tcp:127.0.0.1:%d", s_port);
+    run_suite();
     if (s_fail) {
         fprintf(stderr, "agent_link: %d FAILED\n", s_fail);
         return 1;

@@ -21,7 +21,8 @@ extern "C" {
 #endif
 
 typedef struct AgentLinkConfig {
-    const char* path;       /* socket path; an existing socket there is replaced */
+    const char* path;       /* AF_UNIX path (an existing socket there is replaced),
+                               or tcp:[127.0.0.1:|localhost:]<port> */
     int agent_port;         /* 0-3 */
     int sync_mode;          /* AgentSyncMode */
     uint32_t timeout_us;    /* lockstep wait per tick */
