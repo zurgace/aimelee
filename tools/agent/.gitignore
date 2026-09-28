@@ -7,3 +7,5 @@ settings.json
 slippi-env/
 # the launcher's log of the last game it started
 ai-melee.log
+# Gomihyu's lessons, scoreboard and match log (per machine)
+gomi/
