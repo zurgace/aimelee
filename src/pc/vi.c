@@ -209,7 +209,8 @@ void pc_frame_boundary(void) {
         } else if (event->type == AURORA_SDL_EVENT) {
             if (esc_quits && event->sdl.type == SDL_EVENT_KEY_DOWN &&
                 event->sdl.key.scancode == SDL_SCANCODE_ESCAPE && !event->sdl.key.repeat &&
-                !pc_menu_is_open()) {
+                !pc_menu_is_open())
+            {
                 pc_log_line("Esc: closing the game");
                 pc_exit_requested = true;
             }
