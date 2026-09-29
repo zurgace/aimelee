@@ -118,5 +118,104 @@ class MovesTest(unittest.TestCase):
         self.assertEqual(len({p.stick_x for p in pads} - {0}), 2, "mashes both ways")
 
 
+BF = 0x1F
+
+
+def sit(**kw):
+    """A Situation with everything else neutral: Mario standing at 0, Fox-free FD."""
+    base = dict(x=0.0, y=0.0, opp_x=40.0, opp_y=0.0, edge=85.566, air=False, opp_air=False, facing=1,
+                motion=0x0E, opp_motion=0x0E, hitstun=False, hitlag=False, jumps_left=2, shield=60.0, vy=0.0,
+                percent=0, opp_percent=0)
+    base.update(kw)
+    return mm.Situation(**base)
+
+
+class TechTest(unittest.TestCase):
+    """Techniques are off until she has seen them; then they come out right."""
+
+    def test_nothing_without_skills(self):
+        for seed in range(10):
+            m = mm.Mario(seed=seed)
+            for plan in mm.PLANS:
+                for p in run(m, fighter(x=0), fighter(x=50), plan, 120):
+                    self.assertFalse(p.button & bridge.BUTTON_R and p.stick_y < 0, f"{plan}: an air dodge")
+
+    def test_wavedash(self):
+        m = mm.Mario(seed=1, skills={"wavedash": 1.0})
+        first = m.step(sit(opp_x=50), "approach")
+        self.assertEqual(first.button, bridge.BUTTON_X, "jump")
+        self.assertEqual(m.step(sit(opp_x=50, motion=mm.KNEE_BEND), "approach"), mm.NEUTRAL)
+        dodge = m.step(sit(opp_x=50, motion=mm.JUMPING[0], air=True, y=1.0), "approach")
+        self.assertTrue(dodge.button & bridge.BUTTON_R)
+        self.assertGreater(dodge.stick_x, 50, "toward them, low angle")
+        self.assertLess(dodge.stick_y, 0, "into the ground")
+        self.assertEqual(m.step(sit(motion=mm.LANDING_SPECIAL), "approach"), mm.NEUTRAL, "slide")
+        m.step(sit(opp_x=10), "defend")
+        self.assertIsNone(m.combo, "over once she's standing")
+
+    def test_wavedash_back_when_spacing(self):
+        m = mm.Mario(seed=1, skills={"wavedash": 1.0})
+        m.step(sit(opp_x=15), "space")
+        m.step(sit(opp_x=15, motion=mm.KNEE_BEND), "space")
+        dodge = m.step(sit(opp_x=15, motion=mm.JUMPING[1], air=True, y=1.0), "space")
+        self.assertLess(dodge.stick_x, 0, "away from them")
+
+    def test_l_cancel_once_before_landing(self):
+        for skills, want in (({}, 0), ({"l_cancel": 1.0}, 1)):
+            m = mm.Mario(seed=1, skills=skills)
+            pads = [m.step(sit(air=True, motion=0x41, y=y, vy=-2.5, opp_x=60), "space") for y in (30, 20, 9, 6, 3)]
+            self.assertEqual(presses(pads, bridge.BUTTON_R), want, skills)
+            self.assertFalse(pads[1].button & bridge.BUTTON_R, "not while still high")
+
+    def test_l_cancel_on_platforms_too(self):
+        m = mm.Mario(seed=1, skills={"l_cancel": 1.0})
+        s = sit(air=True, motion=0x41, x=-40, y=33, vy=-2.5, platforms=mm.PLATFORMS[BF], opp_x=60)
+        self.assertTrue(m.step(s, "space").button & bridge.BUTTON_R, "6 above the side platform")
+
+    def test_shffl(self):
+        m = mm.Mario(seed=1, skills={"shffl": 1.0})
+        self.assertEqual(m.step(sit(opp_x=10), "approach").button, bridge.BUTTON_X)
+        self.assertEqual(m.step(sit(opp_x=10, motion=mm.KNEE_BEND), "approach"), mm.NEUTRAL, "short hop")
+        aerial = m.step(sit(opp_x=10, air=True, y=2, vy=2.0, motion=mm.JUMPING[0]), "approach")
+        self.assertGreater(aerial.cstick_x, 0, "forward-air")
+        m.step(sit(opp_x=10, air=True, y=12, vy=0.5, motion=0x42), "approach")
+        ff = m.step(sit(opp_x=10, air=True, y=12, vy=-0.2, motion=0x42), "approach")
+        self.assertEqual(ff.stick_y, -80, "fast fall at the top")
+        low = m.step(sit(opp_x=10, air=True, y=5, vy=-3.0, motion=0x42), "approach")
+        self.assertTrue(low.button & bridge.BUTTON_R, "and the L-cancel")
+
+    def test_platform_plan(self):
+        m = mm.Mario(seed=1)
+        self.assertEqual(run(m, fighter(x=0), fighter(x=40), "platform", 1)[0].stick_x, 0,
+                         "no platforms on FD: spacing")
+        m = mm.Mario(seed=1)
+        s = sit(opp_x=40, platforms=mm.PLATFORMS[BF], edge=68.4)
+        self.assertGreater(m.step(s, "platform").stick_x, 0, "to the platform on their side")
+        m = mm.Mario(seed=1)
+        s = sit(x=38, opp_x=40, platforms=mm.PLATFORMS[BF], edge=68.4)
+        self.assertEqual(m.step(s, "platform").button, bridge.BUTTON_X, "under it: jump")
+
+    def test_drop_onto_them(self):
+        on = dict(x=-38, y=27.2, opp_x=-40, opp_y=0, platforms=mm.PLATFORMS[BF], edge=68.4)
+        m = mm.Mario(seed=1)
+        self.assertEqual(m.step(sit(**on), "platform").stick_y, -80, "tap down through it")
+        m = mm.Mario(seed=1, skills={"shield_drop": 1.0})
+        pads = [m.step(sit(**on), "platform")]
+        pads.append(m.step(sit(**on, motion=0xB2), "platform"))
+        pads.append(m.step(sit(**on, motion=0xB3), "platform"))
+        self.assertTrue(all(p.button & bridge.BUTTON_R for p in pads))
+        self.assertEqual(pads[-1].stick_y, -55, "the shield drop notch")
+        self.assertEqual(pads[1].stick_y, 0, "still shielding")
+
+    def test_waveland(self):
+        m = mm.Mario(seed=1, skills={"waveland": 1.0})
+        p = m.step(sit(air=True, y=4, vy=-2.0, motion=0x1D, opp_x=60), "space")
+        self.assertTrue(p.button & bridge.BUTTON_R)
+        self.assertLess(p.stick_y, 0)
+        m = mm.Mario(seed=1)
+        p = m.step(sit(air=True, y=4, vy=-2.0, motion=0x1D, opp_x=60), "space")
+        self.assertFalse(p.button & bridge.BUTTON_R)
+
+
 if __name__ == "__main__":
     unittest.main()

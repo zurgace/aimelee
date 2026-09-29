@@ -25,6 +25,7 @@ PLANS = {
     "pressure": "up-airs and up-smash when they're above you or close, shine them up close",
     "defend": "shield, then shine or grab out of it; roll away when your shield is low",
     "edgeguard": "when they're offstage: stand at the ledge and shine or laser them",
+    "platform": "get on a platform above them and drop onto them with down-airs (not on Final Destination)",
 }
 
 FIREFOX_CHARGE = 45  # frames Fox holds the stick while Firefox charges (it launches at the end)
@@ -33,6 +34,11 @@ FIREFOX_CHARGE = 45  # frames Fox holds the stick while Firefox charges (it laun
 def shine(then=()):
     """Down-B, jump-cancelled a few frames in."""
     return [pad(B, sy=-80), NEUTRAL, NEUTRAL, pad(X), NEUTRAL, NEUTRAL, *then]
+
+
+def multishine(n):
+    """n shines, each jump-cancelled on its 4th frame and the jumpsquat shined out of."""
+    return [pad(B, sy=-80), NEUTRAL, NEUTRAL, pad(X)] * n + [NEUTRAL] * 6
 
 
 class Fox(base.Mario):
@@ -65,10 +71,15 @@ class Fox(base.Mario):
 
     def plan_approach(self, s):
         if s.dist > 22:
+            if s.dist < 70 and self.knows("wavedash"):
+                return self.start(self.wavedash(s.toward))
             return self.dash(s.toward, 5)
         turn = self.turn(s)
         if turn:
             return turn
+        if self.knows("shffl"):
+            aerial = pad(A) if self.rng.random() < 0.5 else pad(cy=-80)
+            return self.start(self.shffl(aerial, drift=s.toward * 40))   # SHFFL'd nair or down-air
         pick = self.rng.random()
         if pick < 0.3:
             return self.hit(pad(Z), 25)                  # grab
@@ -111,6 +122,12 @@ class Fox(base.Mario):
             return self.hit(pad(cy=80), 30)              # up-smash
         if s.opp_percent > 100 and self.rng.random() < 0.5:
             return self.hit(pad(cy=80), 30)              # up-smash to kill
+        if self.knows("multishine"):
+            shines = multishine(self.rng.randint(2, 4))
+            self.run(*shines[1:])
+            return shines[0]
+        if self.knows("shffl"):
+            return self.start(self.shffl(pad(cy=80)))    # SHFFL'd up-air
         self.run(*shine()[1:], *[NEUTRAL] * 4)
         return pad(B, sy=-80)                            # shine
 

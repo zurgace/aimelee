@@ -69,6 +69,20 @@ class FoxTest(unittest.TestCase):
                     max_run = max(max_run, held)
                 self.assertLessEqual(max_run, 1, f"{plan} holds A")
 
+    def test_multishine(self):
+        f = fm.Fox(seed=1, skills={"multishine": 1.0})
+        pads = run(f, fighter(x=0, ckind=FOX), fighter(x=8, percent=20), "pressure", 12)
+        shine = [p.button == bridge.BUTTON_B and p.stick_y == -80 for p in pads]
+        self.assertEqual(shine[:8], [True, False, False, False, True, False, False, False], "at least two")
+        self.assertEqual([pads[i].button for i in (3, 7)], [bridge.BUTTON_X] * 2, "jump-cancelled")
+
+    def test_no_multishine_unseen(self):
+        for seed in range(10):
+            f = fm.Fox(seed=seed)
+            pads = run(f, fighter(x=0, ckind=FOX), fighter(x=8, percent=20), "pressure", 40)
+            self.assertFalse(any(pads[i].button & bridge.BUTTON_B and pads[i + 4].button & bridge.BUTTON_B
+                                 and pads[i + 3].button & bridge.BUTTON_X for i in range(len(pads) - 4)))
+
 
 if __name__ == "__main__":
     unittest.main()

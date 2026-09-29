@@ -13,7 +13,7 @@ frame and is followed by a release, so nothing is held by accident.
 
 import random
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import bridge
 
@@ -30,6 +30,18 @@ PLANS = {
     "pressure": "up-tilts and up-airs when they're above you, smash them when they're close and hurt",
     "defend": "shield, shield-grab, roll away when your shield is low",
     "edgeguard": "when they're offstage: stand at the ledge and cape or fireball them",
+    "platform": "get on a platform above them and drop onto them with aerials (not on Final Destination)",
+}
+
+# Techniques she only uses once she has seen the human do them (gomi_reads.py
+# spots them); the library knows how, and Player.skills says how often.
+TECHS = {
+    "l_cancel": "L-cancelling aerials (a shield press just before landing halves the landing lag)",
+    "shffl": "short hop, aerial, fast fall, L-cancel (SHFFL)",
+    "wavedash": "wavedashing (jump, air dodge diagonally into the ground, slide)",
+    "waveland": "wavelanding (air dodge into the ground or a platform while falling)",
+    "shield_drop": "shield dropping (from shield, straight through a platform)",
+    "multishine": "multishining (shine, jump out of it, shine again: Fox only)",
 }
 
 # StKind -> x of the stage's edge while standing on it (libmelee's
@@ -44,6 +56,16 @@ EDGE = {
 }
 DEFAULT_EDGE = 60.0
 
+# StKind -> (height, left x, right x) of each platform (libmelee's stages.py);
+# Fountain of Dreams' side platforms move, so only its top one is here.
+PLATFORMS = {
+    0x1F: ((27.2, -57.6, -20.0), (27.2, 20.0, 57.6), (54.4, -18.8, 18.8)),
+    0x03: ((25.0, -55.0, -25.0), (25.0, 25.0, 55.0)),
+    0x08: ((23.45, -59.5, -28.0), (23.45, 28.0, 59.5), (42.0, -15.75, 15.75)),
+    0x1C: ((30.14, -61.39, -31.73), (30.24, 31.70, 63.07), (51.43, -19.02, 19.02)),
+    0x02: ((42.75, -14.25, 14.25),),
+}
+
 # Action states (motion_id) the library reacts to.
 TUMBLING = 0x26
 HELPLESS = (0x23, 0x24, 0x25)          # FallSpecial after Up-B
@@ -53,6 +75,14 @@ SHIELD = range(0xB2, 0xB6)
 OWN_GRAB = range(0xD4, 0xDF)            # Mario holding someone
 GRABBED = range(0xDF, 0xE9)             # someone holding Mario
 LEDGE = (0xFC, 0xFD)                    # CliffCatch, CliffWait
+KNEE_BEND = 0x18                        # jumpsquat
+JUMPING = (0x19, 0x1A)                  # first jump, forward and back
+LANDING_SPECIAL = 0x2B                  # wavedash / waveland landing
+AERIALS = range(0x41, 0x46)             # nair, fair, bair, uair, dair
+AERIAL_LANDINGS = range(0x46, 0x4B)
+SHIELDING = (0xB2, 0xB3, 0xB5)          # GuardOn, Guard, GuardSetOff
+AIRDODGE = 0xEC
+PLATFORM_DROP = 0xF4
 
 
 def pad(buttons=0, sx=0, sy=0, cx=0, cy=0, r=0):
@@ -89,6 +119,8 @@ class Situation:
     vy: float
     percent: int
     opp_percent: int
+    platforms: tuple = ()
+    frame: float = 0.0
 
     @property
     def dx(self):
@@ -139,6 +171,28 @@ class Situation:
     def holding(self):
         return self.motion in OWN_GRAB
 
+    def surface(self, x, y):
+        """Height of what's under (x, y): a platform, the stage (0), or None over the void."""
+        under = [h for h, left, right in self.platforms if left <= x <= right and h <= y + 1]
+        if under:
+            return max(under)
+        return 0.0 if abs(x) <= self.edge else None
+
+    @property
+    def height(self):
+        """How far above the ground or platform under her; None over the void."""
+        ground = self.surface(self.x, self.y)
+        return None if ground is None else self.y - ground
+
+    @property
+    def on_platform(self):
+        return not self.air and self.y > 5
+
+    def platform_near(self, x):
+        """The side platform (low enough for a full hop) nearest x, or None."""
+        low = [p for p in self.platforms if p[0] < 35]
+        return min(low, key=lambda p: abs((p[1] + p[2]) / 2 - x)) if low else None
+
 
 def situation(me, opp, stage):
     return Situation(
@@ -148,7 +202,7 @@ def situation(me, opp, stage):
         hitstun=bool(me.flags & bridge.FT_IN_HITSTUN) or me.motion_id in DAMAGE,
         hitlag=bool(me.flags & bridge.FT_IN_HITLAG),
         jumps_left=max(0, me.max_jumps - me.jumps_used), shield=me.shield, vy=me.self_vy,
-        percent=me.percent, opp_percent=opp.percent)
+        percent=me.percent, opp_percent=opp.percent, platforms=PLATFORMS.get(stage, ()), frame=me.action_frame)
 
 
 class Mario:
@@ -156,47 +210,88 @@ class Mario:
 
     ZONE = ZONE
 
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, skills=None):
         self.rng = random.Random(seed)
         self.queue = deque()
+        self.combo = None       # a technique in progress: a generator sent each frame's Situation
+        self.skills = dict(skills or {})  # TECHS name -> how often she uses it (0..1)
+        self.reset()
+
+    def reset(self):
+        self.queue.clear()
+        self.combo = None
         self.mode = "plan"      # what produced the queued inputs (logged, and used for stats)
         self.teched = False     # one tech press per tumble: a second one locks teching out
         self.upb_used = False   # one Up-B per trip offstage
         self.cooldown = 0
-
-    def reset(self):
-        self.queue.clear()
-        self.mode = "plan"
-        self.teched = False
-        self.upb_used = False
-        self.cooldown = 0
+        self.l_cancel = None    # this aerial: None (not decided), True (press before landing), False
+        self.waveland_tried = False
 
     def run(self, *pads):
         self.queue.extend(pads)
 
+    def drop(self):
+        """Whatever was queued is stale now."""
+        self.queue.clear()
+        self.combo = None
+
+    def knows(self, tech):
+        """She has seen it and feels like using it this time."""
+        rate = self.skills.get(tech, 0.0)
+        return rate > 0 and self.rng.random() < rate
+
+    def start(self, combo):
+        """Run a technique frame by frame: its first pad now, the rest as it reacts."""
+        self.combo = combo
+        return next(combo)
+
     def step(self, s, plan):
         """The pad for this frame. `s` is a Situation, `plan` one of PLANS."""
+        p = self.choose(s, plan)
+        if self.lcancel_now(s):
+            p = replace(p, button=p.button | R, trigger_r=140)
+        return p
+
+    def lcancel_now(self, s):
+        """Press the shield just before an aerial lands (once per aerial)."""
+        if s.motion not in AERIALS or not s.air:
+            self.l_cancel = None
+            return False
+        if self.l_cancel is None:
+            self.l_cancel = self.knows("l_cancel") or self.knows("shffl")
+        if self.l_cancel and s.vy < 0 and s.height is not None and s.height < 10:
+            self.l_cancel = False
+            return True
+        return False
+
+    def choose(self, s, plan):
         if self.cooldown:
             self.cooldown -= 1
         if not s.air:
             self.upb_used = False
+            self.waveland_tried = False
         if s.motion != TUMBLING and s.motion not in DAMAGE:
             self.teched = False
         if self.can_tech(s):
             self.teched = True
-            self.queue.clear()
+            self.drop()
             self.mode = "tech"
             return pad(R, sx=s.home * 80, r=140)  # tech roll toward the centre
         if s.hitlag or s.hitstun:
             # Survival DI: up and toward the stage. Queued moves are stale now.
-            self.queue.clear()
+            self.drop()
             self.mode = "hit"
             return pad(sx=s.home * 55, sy=45)
         if s.grabbed:
-            self.queue.clear()
+            self.drop()
             self.mode = "mash"
             flip = self.rng.random() < 0.5
             return pad(A if flip else B, sx=80 if flip else -80)
+        if self.combo is not None:
+            try:
+                return self.combo.send(s)
+            except StopIteration:
+                self.combo = None
         if self.queue:
             return self.queue.popleft()
         if s.on_ledge:
@@ -268,6 +363,82 @@ class Mario:
             return pad(sx=-s.facing * 80)  # back throw off the stage
         return pad(sy=80) if s.opp_percent < 60 else pad(sx=s.facing * 80)  # up-throw for follow-ups
 
+    # ---- techniques (combos: generators sent each frame's Situation) --------
+
+    def wavedash(self, direction):
+        """Jump, and on the first airborne frame air dodge down and `direction`."""
+        s = yield pad(X)
+        for _ in range(8):
+            if s.air or s.motion in JUMPING:
+                break
+            s = yield NEUTRAL
+        else:
+            return
+        s = yield pad(R, sx=direction * 72, sy=-35, r=140)
+        for _ in range(20):
+            if not s.air and s.motion != LANDING_SPECIAL:
+                return
+            s = yield NEUTRAL
+
+    def shffl(self, aerial, drift=0):
+        """Short hop, `aerial` (a c-stick or A pad) at once, fast fall at the top;
+        step() adds the L-cancel."""
+        s = yield pad(X)
+        for _ in range(8):
+            if s.air:
+                break
+            s = yield NEUTRAL
+        else:
+            return
+        s = yield aerial
+        fell = False
+        for _ in range(50):
+            if not s.air:
+                return
+            if not fell and s.vy < 0:
+                fell = True
+                s = yield pad(sy=-80)                    # fast fall: a fresh tap down
+            else:
+                s = yield pad(sx=drift)
+
+    def shield_drop(self):
+        """On a platform: shield, then the stick down just far enough to drop through
+        (y -0.6875: past the pass threshold, short of a spot dodge)."""
+        s = yield pad(R, r=140)
+        for _ in range(8):
+            if s.motion in SHIELDING and s.motion != 0xB2:
+                break
+            s = yield pad(R, r=140)
+        s = yield pad(R, sy=-55, r=140)
+        for _ in range(6):
+            if s.air:
+                return
+            s = yield NEUTRAL
+
+    def platform_hop(self, target):
+        """Full hop onto the platform `target` (height, left, right), drifting to its
+        middle; double jump if short; waveland onto it if she knows how."""
+        height, left, right = target
+        mid = (left + right) / 2
+        s = yield pad(X)
+        airborne = False
+        waveland = self.knows("waveland")
+        for i in range(90):
+            airborne = airborne or s.air
+            if airborne and not s.air:
+                return
+            drift = max(-80, min(80, (mid - s.x) * 6))
+            if i < 7:
+                s = yield pad(X, sx=drift)               # hold X: a full hop
+            elif s.vy < 0 and s.y < height - 2 and s.jumps_left > 0 and abs(mid - s.x) < 25:
+                s = yield pad(X, sx=drift)               # short: double jump
+                s = yield pad(sx=drift)
+            elif waveland and s.vy < 0 and 0 < s.y - height < 6 and left < s.x < right:
+                waveland = False
+                s = yield pad(R, sx=sign(drift) * 60, sy=-50, r=140)
+            else:
+                s = yield pad(sx=drift)
+
     # ---- the plans -----------------------------------------------------------
 
     def do_plan(self, s, plan):
@@ -299,6 +470,8 @@ class Mario:
     def retreat(self, s, frames):
         if self.cornered(s):
             return self.escape(s)
+        if s.facing == s.toward and self.knows("wavedash"):
+            return self.start(self.wavedash(-s.toward))   # wavedash back, still facing them
         return self.dash(-s.toward, frames)
 
     def dash(self, direction, frames=6):
@@ -312,10 +485,14 @@ class Mario:
 
     def plan_approach(self, s):
         if s.dist > 22:
+            if s.dist < 70 and self.knows("wavedash"):
+                return self.start(self.wavedash(s.toward))
             return self.dash(s.toward, 5)
         turn = self.turn(s)
         if turn:
             return turn
+        if self.knows("shffl"):
+            return self.start(self.shffl(pad(cx=s.facing * 80)))   # SHFFL'd forward-air
         pick = self.rng.random()
         if pick < 0.35:
             return self.hit(pad(Z), 25)                  # grab
@@ -396,8 +573,37 @@ class Mario:
             return self.hit(pad(B, sx=side * 80), 30)    # cape
         return self.hit(pad(B), 30)                      # fireball off the ledge
 
+    def plan_platform(self, s):
+        """Above them on a platform, dropping onto them; up there from the stage."""
+        if not s.platforms:
+            return self.plan_space(s)
+        if s.on_platform:
+            if s.dist > 45 or (s.dy < -8 and s.dist < 25):
+                if self.knows("shield_drop"):
+                    return self.start(self.shield_drop())
+                self.run(NEUTRAL, NEUTRAL)
+                return pad(sy=-80)                       # tap down: drop through
+            if abs(s.dy) <= 8:
+                return self.plan_approach(s)             # they're up here too
+            if s.dy > 8:
+                return self.plan_pressure(s)
+            return NEUTRAL                               # above them: wait for them to come close
+        target = s.platform_near(s.opp_x)
+        if target is None:
+            return self.plan_space(s)
+        mid = (target[1] + target[2]) / 2
+        if abs(mid - s.x) > 12:
+            return self.dash(sign(mid - s.x), 3)
+        return self.start(self.platform_hop(target))
+
     def air(self, s, plan):
         """Airborne over the stage: drift, and swing when they're close."""
+        if (not self.waveland_tried and s.vy < 0 and s.motion not in AERIALS and s.motion != AIRDODGE
+                and s.height is not None and 0 < s.height < 6 and plan in (self.ZONE, "space", "platform")):
+            self.waveland_tried = True
+            if self.knows("waveland"):
+                direction = -s.toward if s.dist < 30 else s.toward
+                return self.hit(pad(R, sx=direction * 60, sy=-50, r=140), 10)
         close = s.dist < 18 and abs(s.dy) < 20
         if close and not self.cooldown:
             self.cooldown = 20

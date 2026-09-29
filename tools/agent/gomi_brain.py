@@ -41,6 +41,7 @@ from pathlib import Path
 
 import bridge
 import fox_moves
+import gomi_handbook
 import mario_moves
 import roster
 
@@ -148,14 +149,15 @@ class Scoreboard:
     def table(self, opponent):
         return self.data["by_opponent"].get(opponent) or self.data["all"]
 
-    def score(self, plan, opponent):
-        """Net percent per minute in this plan, KOs worth 40; shrunk toward 0
-        until the plan has had a few minutes."""
+    def score(self, plan, opponent, prior=0.0):
+        """Net percent per minute in this plan, KOs worth 40; shrunk toward the
+        handbook's prior until the plan has had a few minutes."""
         t = self.table(opponent).get(plan)
         if not t:
-            return 0.0
+            return prior
         net = t["dealt"] - t["taken"] + 40 * (t["kos"] - t["deaths"])
-        return net / (t["frames"] / 3600 + 0.5)
+        minutes = t["frames"] / 3600
+        return (net + prior * 0.5) / (minutes + 0.5)
 
     def lines(self, opponent):
         table = self.table(opponent)
@@ -215,6 +217,7 @@ class GomiBrain:
         self.seed = seed
         self.migrate()
         self.use(mario_moves)
+        self.priors = {}
         self.lock = threading.Lock()
         self.planner = None
         self.reflecting = None
@@ -257,6 +260,7 @@ class GomiBrain:
         self.pad = bridge.Pad.neutral()
         self.snapshot = None
         self.lessons = read_lessons(self.char_dir / "lessons.md")
+        self.priors = gomi_handbook.priors(self.moves.NAME, self.opponent)
         self.system = self.match_prompt()
         self.active = True
         self.stop_match = threading.Event()
@@ -388,6 +392,8 @@ class GomiBrain:
         return (f"{persona(self.moves.NAME)}\n\nYou're facing {self.opponent}. Twice a second you're told "
                 f"the situation and choose {self.moves.NAME}'s game plan:\n{plans}\n"
                 "Recovering, teching and getting up happen by themselves.\n\n"
+                f"What every {self.moves.NAME} player knows:\n"
+                f"{gomi_handbook.lines(self.moves.NAME, self.opponent)}\n\n"
                 f"Your lessons from earlier matches:\n{lessons}\n\n"
                 f"What each plan has done against {self.opponent} so far:\n{board}\n\n"
                 'Answer in JSON: {"plan": one of the plans, "say": a short in-character taunt, or "" '
@@ -414,9 +420,12 @@ class GomiBrain:
             options = [self.moves.ZONE, "approach", "space"]
         else:
             options = ["approach", "pressure", "defend", "space", self.moves.ZONE]
+            if s.platforms:
+                options.append("platform")
         if self.rng.random() < 0.15:
             return self.rng.choice(options)
-        weights = [math.exp(max(-5.0, min(5.0, self.scoreboard.score(p, self.opponent) / 15))) for p in options]
+        scores = [self.scoreboard.score(p, self.opponent, self.priors.get(p, 0.0)) for p in options]
+        weights = [math.exp(max(-5.0, min(5.0, v / 15))) for v in scores]
         return self.rng.choices(options, weights)[0]
 
     def set_plan(self, plan):

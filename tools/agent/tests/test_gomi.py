@@ -304,6 +304,36 @@ class GomiTest(unittest.TestCase):
         picks = [b.fallback((s, 4, 4, "space")) for _ in range(400)]
         self.assertGreater(picks.count("fireball"), 3 * picks.count("approach"))
 
+    def test_handbook(self):
+        import gomi_handbook as hb
+        for moves in gomi_brain.CHARACTERS.values():
+            self.assertTrue(hb.BASICS[moves.NAME])
+            for opp in hb.OPPONENTS:
+                self.assertEqual(set(hb.priors(moves.NAME, opp)), set(moves.PLANS), (moves.NAME, opp))
+        self.assertGreater(hb.priors("Mario", "Captain Falcon")["edgeguard"],
+                           hb.priors("Mario", "Pikachu")["edgeguard"])
+        self.assertLess(hb.priors("Fox", "Falco")["lasers"], hb.priors("Fox", "Ganondorf")["lasers"])
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        g = Game(b)
+        g.opp = fighter(x=40, ckind=0x00)
+        g.start()
+        b.close()
+        b.stop_match.set()
+        self.assertIn("What every Mario player knows", b.system)
+        self.assertIn("Captain Falcon: fast and hits hard", b.system)
+
+    def test_priors_start_her_rules_and_fade(self):
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        b.opponent = "Captain Falcon"
+        b.priors = {"edgeguard": 40.0, "space": -40.0}
+        s = mm.situation(fighter(x=0), fighter(x=120, y=-20, air=True, ckind=0x00), 0x20)  # he's offstage
+        picks = [b.fallback((s, 4, 4, "space")) for _ in range(300)]
+        self.assertGreater(picks.count("edgeguard"), 3 * picks.count("space"), "no numbers yet: the handbook")
+        self.assertEqual(b.scoreboard.score("edgeguard", "Captain Falcon", 12.0), 12.0)
+        b.scoreboard.add("Captain Falcon", {"edgeguard": {"frames": 36000, "dealt": 0, "taken": 300, "kos": 0,
+                                                          "deaths": 3}}, won=False)
+        self.assertLess(b.scoreboard.score("edgeguard", "Captain Falcon", 40.0), 0, "ten minutes of numbers win")
+
 
 if __name__ == "__main__":
     unittest.main()

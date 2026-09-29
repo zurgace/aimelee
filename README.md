@@ -166,7 +166,8 @@ The launcher remembers your choices. While you play, it shows **AI ready**, and 
 ## Gomihyu takes over P2 (optional)
 
 [Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she is P2's AI, as **Mario** or **Fox**. slippi-ai and the 2017 agents stay off (they aren't even loaded), and P2's door opens with Mario or Fox.
-- **During a match:** twice a second she picks her character's game plan: approach, zoning (Mario's fireballs, Fox's lasers), spacing, pressure, defending, or edgeguarding. A move library plays that plan frame by frame; she's far too slow to press the buttons herself. Fox shines up close. Recovering (Mario's Up-B; Fox's Illusion or a Firefox aimed at the ledge), teching and getting up happen without her.
+- **Before her first match** she already knows the basics: a handbook (`tools/agent/gomi_handbook.py`) of what every Mario or Fox player learns first, and a note on each opponent. Her prompt always shows it, and it gives her rule-based fallback a starting guess for each plan. Her own numbers replace that guess as she plays.
+- **During a match:** twice a second she picks her character's game plan: approach, zoning (Mario's fireballs, Fox's lasers), spacing, pressure, defending, edgeguarding, or playing from the platforms. A move library plays that plan frame by frame; she's far too slow to press the buttons herself. Fox shines up close. Recovering (Mario's Up-B; Fox's Illusion or a Firefox aimed at the ledge), teching and getting up happen without her.
 - **After each match:** she reads how it went, what each plan dealt and took, and how she lost her stocks. Then she rewrites her lessons for the next match.
 - **Across matches:** every plan's results are tallied per opponent, and she sees that scoreboard too. So she changes her game from match to match, but don't expect a pro: she stays a quirky, beatable one.
 
