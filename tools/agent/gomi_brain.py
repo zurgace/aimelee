@@ -19,9 +19,11 @@ folder per character she plays (mario/, fox/):
   lessons.md        what she has learned, rewritten after each match
   scoreboard.json   per-plan totals, by opponent character
   matches.jsonl     one summary per match
-and for both:
-  outbox/           one file per match for her Discord bot to post about
-                    (gomihyu's MELEE_OUTBOX); the newest 20 are kept
+
+Her Discord bot (gomihyu) posts what she says: a file per match and per
+in-match taunt, in the outbox both programs know,
+~/.local/share/gomihyu/melee-outbox ($XDG_DATA_HOME; $GOMI_OUTBOX to move
+it). The newest 20 files are kept, in case the bot isn't running.
 
 Settings: GOMI_OLLAMA_URL (default http://localhost:11434/api/chat),
 GOMI_MODEL (default gemma4:e4b), GOMI_PLAN_EVERY (seconds, default 0.5).
@@ -52,7 +54,8 @@ MAX_LESSONS = 8
 OUTBOX_KEEP = 20
 STAGE_NAMES = {0x1F: "Battlefield", 0x20: "Final Destination", 0x03: "Pokemon Stadium", 0x08: "Yoshi's Story",
                0x1C: "Dream Land N64", 0x02: "Fountain of Dreams"}
-SAY_EVERY_S = 20.0
+SAY_EVERY_S = 30.0
+WAITING_WARN_S = 120.0  # outbox files older than this at match start: is her bot running?
 FAILURES_BEFORE_RULES = 3
 
 
@@ -189,12 +192,22 @@ def where(x, y, air, edge):
     return f"{'in the air' if air else 'on the ground'}, {third}"
 
 
+def default_outbox():
+    """Where her Discord bot looks for what she says (gomihyu's MELEE_OUTBOX default)."""
+    if os.environ.get("GOMI_OUTBOX"):
+        return Path(os.environ["GOMI_OUTBOX"]).expanduser()
+    data = os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+    return Path(data) / "gomihyu" / "melee-outbox"
+
+
 # ---------------------------------------------------------------- Gomi
 
 class GomiBrain:
-    def __init__(self, log=None, data_dir=None, url=None, model=None, plan_every=None, seed=None, llm=None):
+    def __init__(self, log=None, data_dir=None, url=None, model=None, plan_every=None, seed=None, llm=None,
+                 outbox=None):
         self.log = log or (lambda msg: print(f"gomi: {msg}", flush=True))
         self.dir = Path(data_dir or os.environ.get("GOMI_DIR") or HERE / "gomi")
+        self.outbox = Path(outbox) if outbox else default_outbox()
         self.llm = llm or Ollama(url or os.environ.get("GOMI_OLLAMA_URL") or DEFAULT_URL,
                                  model or os.environ.get("GOMI_MODEL") or DEFAULT_MODEL)
         self.plan_every = float(plan_every or os.environ.get("GOMI_PLAN_EVERY") or 0.5)
@@ -251,6 +264,15 @@ class GomiBrain:
         self.planner.start()
         self.log(f"Gomihyu plays {self.moves.NAME} vs {self.opponent} ({self.llm.model}; "
                  f"{len(self.lessons)} lessons, {self.scoreboard.data['matches']} matches played)")
+        self.warn_if_waiting()
+
+    def warn_if_waiting(self):
+        """Posts nobody took: her Discord bot isn't running, or looks elsewhere."""
+        now = time.time()
+        waiting = [p for p in self.outbox.glob("*.json") if now - p.stat().st_mtime > WAITING_WARN_S]
+        if waiting:
+            self.log(f"{len(waiting)} of her Discord posts are still waiting: is her gomihyu bot running? "
+                     f"(it posts from {self.outbox})")
 
     def pad_for(self, st, port, opp_port):
         me, opp = st.fighters[port], st.fighters[opp_port]
@@ -316,14 +338,10 @@ class GomiBrain:
         self.post(record, line, lessons)
 
     def post(self, record, line, lessons):
-        """The match for her Discord bot (gomihyu's MELEE_OUTBOX): one JSON file
-        per match, written whole (temp file, then rename); the oldest go past
-        OUTBOX_KEEP, in case the bot isn't running to take them."""
-        outbox = self.dir / "outbox"
-        outbox.mkdir(parents=True, exist_ok=True)
+        """The match, for her Discord bot to post about."""
         board = self.scoreboard.data
         vs = board["records"].get(self.opponent, {})
-        event = {"version": 1, "time": time.time(), "character": self.moves.NAME,
+        event = {"version": 1, "kind": "match", "time": time.time(), "character": self.moves.NAME,
                  "opponent_character": self.opponent,
                  "stage": STAGE_NAMES.get(record["stage"], f"stage {record['stage']}"),
                  "won": record["won"], "stocks": record["stocks"], "percent": record["percent"],
@@ -331,12 +349,29 @@ class GomiBrain:
                  "best_plan": record.get("best_plan"), "worst_plan": record.get("worst_plan"),
                  "record": {"matches": board["matches"], "wins": board["wins"],
                             "matches_vs": vs.get("matches", 0), "wins_vs": vs.get("wins", 0)}}
-        name = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1000000:06d}.json"
-        tmp = outbox / (name + ".tmp")
-        tmp.write_text(json.dumps(event, indent=1))
-        tmp.replace(outbox / name)
-        for old in sorted(outbox.glob("*.json"))[:-OUTBOX_KEEP]:
-            old.unlink(missing_ok=True)
+        if self.send(event):
+            self.log(f"sent the match to her Discord bot ({self.outbox})")
+
+    def taunt(self, text):
+        """Trash talk mid-match: her bot posts it as it is."""
+        self.send({"version": 1, "kind": "taunt", "time": time.time(), "character": self.moves.NAME,
+                   "opponent_character": self.opponent, "text": text})
+
+    def send(self, event):
+        """One JSON file in the outbox, written whole (temp file, then rename);
+        past OUTBOX_KEEP the oldest go, in case the bot isn't running."""
+        try:
+            self.outbox.mkdir(parents=True, exist_ok=True)
+            name = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1000000000:09d}.json"
+            tmp = self.outbox / (name + ".tmp")
+            tmp.write_text(json.dumps(event, indent=1))
+            tmp.replace(self.outbox / name)
+            for old in sorted(self.outbox.glob("*.json"))[:-OUTBOX_KEEP]:
+                old.unlink(missing_ok=True)
+        except OSError as e:
+            self.log(f"couldn't leave that for her Discord bot in {self.outbox} ({e})")
+            return False
+        return True
 
     def close(self, timeout=120.0):
         """Let the reflection on the last match finish."""
@@ -420,6 +455,7 @@ class GomiBrain:
                         if say and time.monotonic() - self.said_at > SAY_EVERY_S:
                             self.said_at = time.monotonic()
                             self.log(f'Gomi: "{say[:160]}"')
+                            self.taunt(say[:300])
                     except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as e:
                         failures += 1
                         if failures >= FAILURES_BEFORE_RULES:

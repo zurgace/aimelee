@@ -85,6 +85,8 @@ class StatusTest(unittest.TestCase):
         self.check("gomi: match over: lost 0-2 stocks vs Fox; best plan so far fireball, worst approach",
                    ("result", "Gomihyu lost 0-2 stocks vs Fox; best plan so far fireball, worst approach"))
         self.assertIsNone(launcher.status_for("gomi: plan: fireball"))
+        self.check("gomi: 3 of her Discord posts are still waiting: is her gomihyu bot running? (it posts from /x)",
+                   ("discord", "Discord: 3 of her posts are waiting. Is her gomihyu bot running?"))
         self.check("gomi: Gomihyu plays Fox vs Marth (gemma4:e4b; 0 lessons, 0 matches played)",
                    ("match", "This match: Gomihyu plays Fox vs Marth"))
         self.check("agent: Gomihyu doesn't play Peach; the port stands still this match. Pick Mario or Fox",

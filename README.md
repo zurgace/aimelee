@@ -191,7 +191,7 @@ If Ollama isn't running, she still plays, on her rule-based fallback. That fallb
 
 Delete that folder to start her over. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server.
 
-**Posting to Discord.** After each match she also leaves the result in `tools/agent/gomi/outbox/`. Her [Discord bot](https://github.com/zurgace/gomihyu) can post it as @Gomihyu, in her own words: point the bot's `MELEE_OUTBOX` setting at that folder and set `MELEE_CHANNEL_ID` (see her README, "Melee results"). Only the newest 20 files are kept, so nothing piles up while the bot is off.
+**Posting to Discord.** Her [Discord bot](https://github.com/zurgace/gomihyu) posts her taunts live (at most one every 30 seconds) and a post about every match, as @Gomihyu, in her own words. Both programs find each other on their own: AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, where her bot looks. To pick the channel, say **"gomi post melee here"** in it (as the bot's owner). If her posts pile up unposted, the launcher says so. See her README, "Melee results".
 
 ## Troubleshooting
 

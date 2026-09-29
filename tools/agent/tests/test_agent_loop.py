@@ -298,6 +298,7 @@ class AgentLoopTest(unittest.TestCase):
                 game = FakeGame(sock, script)
                 game.start()
                 env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
+                           GOMI_OUTBOX=str(Path(tmp) / "outbox"),
                            GOMI_PLAN_EVERY="0.05")
                 proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--roster", str(roster_file),
                                        "--socket", sock, "--seed", "3", "--once", "--gomi"],
@@ -330,6 +331,7 @@ class AgentLoopTest(unittest.TestCase):
                 game = FakeGame(sock, script)
                 game.start()
                 env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
+                           GOMI_OUTBOX=str(Path(tmp) / "outbox"),
                            GOMI_PLAN_EVERY="0.05")
                 proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--gomi", "--socket", sock,
                                        "--seed", "3", "--once"], capture_output=True, text=True, timeout=60, env=env)

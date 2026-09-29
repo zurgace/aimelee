@@ -122,6 +122,11 @@ def status_for(line, brain="auto"):
         return "gomi", f'Gomi: "{m.group(1)}"'
     if line.startswith("play: Gomihyu plays Mario and Fox on her rules"):
         return "gomi", "Gomihyu: Ollama isn't answering, so she plays on her rules (see log)"
+    m = re.match(r"gomi: (\d+) of her Discord posts are still waiting", line)
+    if m:
+        return "discord", f"Discord: {m.group(1)} of her posts are waiting. Is her gomihyu bot running?"
+    if line.startswith("gomi: sent the match to her Discord bot"):
+        return "discord", "Discord: match sent to her bot"
     m = re.match(r"gomi: match over: (.+)$", line)
     if m:
         return "result", "Gomihyu " + m.group(1)
@@ -451,7 +456,7 @@ class Launcher:
         self.status[slot] = text
         for w in self.status_box.winfo_children():
             w.destroy()
-        for key in ("start", "setup", "agents", "model", "game", "ai", "match", "gomi", "result"):
+        for key in ("start", "setup", "agents", "model", "game", "ai", "match", "gomi", "result", "discord"):
             if key in self.status:
                 mark = "✓" if key in ("agents", "model") or self.status[key].startswith("AI ready") else "•"
                 self.ttk.Label(self.status_box, text=f"{mark}  {self.status[key]}", wraplength=520,

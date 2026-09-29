@@ -3,6 +3,7 @@ waits for her, failures fall back to her rules, and a match leaves lessons,
 a scoreboard and a match record behind."""
 
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -11,6 +12,7 @@ import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -111,7 +113,7 @@ class GomiTest(unittest.TestCase):
 
     def brain(self, url, **kw):
         return gomi_brain.GomiBrain(log=self.logs.append, data_dir=self.tmp.name, url=url,
-                                    plan_every=0.05, seed=1, **kw)
+                                    plan_every=0.05, seed=1, outbox=Path(self.tmp.name) / "outbox", **kw)
 
     def test_her_plan_drives_mario_and_she_talks(self):
         fake = FakeOllama(plan="fireball")
@@ -193,9 +195,11 @@ class GomiTest(unittest.TestCase):
         self.assertEqual(record["stocks"], [3, 4])
         self.assertTrue(any('after the match: "I let you win' in ln for ln in self.logs))
         # And a file for her Discord bot, written after the reflection.
-        posts = sorted((d.parent / "outbox").iterdir())
-        self.assertEqual([p.suffix for p in posts], [".json"], "one file, no temp file left")
-        event = json.loads(posts[0].read_text())
+        files = sorted((d.parent / "outbox").iterdir())
+        self.assertEqual({p.suffix for p in files}, {".json"}, "no temp file left")
+        events = [json.loads(p.read_text()) for p in files]
+        self.assertEqual([e["kind"] for e in events].count("match"), 1)
+        event = next(e for e in events if e["kind"] == "match")
         self.assertEqual((event["opponent_character"], event["stage"], event["won"], event["stocks"]),
                          ("Fox", "Final Destination", False, [3, 4]))
         self.assertEqual(event["line"], "I let you win, mortal.")
@@ -231,8 +235,9 @@ class GomiTest(unittest.TestCase):
         d = Path(self.tmp.name)
         self.assertTrue((d / "fox" / "lessons.md").exists())
         self.assertFalse((d / "mario").exists(), "Mario's lessons and scoreboard are his own")
-        event = json.loads(next((d / "outbox").iterdir()).read_text())
-        self.assertEqual(event["character"], "Fox")
+        events = [json.loads(p.read_text()) for p in (d / "outbox").iterdir()]
+        self.assertEqual({e["character"] for e in events}, {"Fox"})
+        self.assertTrue(any(e["kind"] == "match" for e in events))
 
     def test_old_files_move_to_mario(self):
         d = Path(self.tmp.name)
@@ -242,6 +247,42 @@ class GomiTest(unittest.TestCase):
         self.assertEqual(gomi_brain.read_lessons(d / "mario" / "lessons.md"), ["fireballs rule"])
         self.assertEqual(b.scoreboard.data["matches"], 3)
         self.assertFalse((d / "lessons.md").exists())
+
+    def test_taunts_go_to_discord_too(self):
+        fake = FakeOllama(plan="approach", say="Kneel, fox-peasant!")
+        try:
+            b = self.brain(fake.url)
+            g = Game(b)
+            g.start()
+            self.assertTrue(g.until(lambda: any("Kneel" in ln for ln in self.logs)))
+            g.until(lambda: len(fake.requests) > 10, timeout=2)  # more answers, all within 30 s
+            b.end_match()
+            b.close()
+        finally:
+            fake.close()
+        taunts = [json.loads(p.read_text()) for p in (Path(self.tmp.name) / "outbox").glob("*.json")]
+        taunts = [e for e in taunts if e["kind"] == "taunt"]
+        self.assertEqual(len(taunts), 1, "at most one every 30 s")
+        self.assertEqual((taunts[0]["text"], taunts[0]["opponent_character"]), ("Kneel, fox-peasant!", "Fox"))
+        self.assertTrue(any(ln.startswith("sent the match to her Discord bot") for ln in self.logs))
+
+    def test_default_outbox_and_waiting_warning(self):
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": "/x/data"}, clear=False):
+            os.environ.pop("GOMI_OUTBOX", None)
+            self.assertEqual(gomi_brain.default_outbox(), Path("/x/data/gomihyu/melee-outbox"))
+            os.environ["GOMI_OUTBOX"] = "/y/out"
+            self.assertEqual(gomi_brain.default_outbox(), Path("/y/out"))
+            del os.environ["GOMI_OUTBOX"]
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        old = Path(self.tmp.name) / "outbox" / "old.json"
+        old.parent.mkdir()
+        old.write_text("{}")
+        os.utime(old, (time.time() - 600, time.time() - 600))
+        g = Game(b)
+        g.start()
+        b.end_match()
+        b.close()
+        self.assertTrue(any("1 of her Discord posts are still waiting" in ln for ln in self.logs), self.logs)
 
     def test_outbox_keeps_the_newest(self):
         b = self.brain("http://127.0.0.1:9/api/chat")

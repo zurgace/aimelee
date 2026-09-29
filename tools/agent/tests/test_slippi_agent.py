@@ -231,7 +231,8 @@ class LoopTest(unittest.TestCase):
                 sock = str(Path(tmp) / "agent.sock")
                 game = FakeGame(sock, p2_ckind=8)
                 game.start()
-                env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"))
+                env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
+                           GOMI_OUTBOX=str(Path(tmp) / "outbox"))
                 proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"),
                                        "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", sock,
                                        "--roster", str(roster_file), "--gomi", "--once"],
