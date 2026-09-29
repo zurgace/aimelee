@@ -463,6 +463,7 @@ def main():
     # melee-pc's background prewarm can race the game's own boot-time load of
     # LbRb.dat, which then reads as zeros and stops the game (NOTES.md).
     env.setdefault("MELEE_PREWARM", "0")
+    env["MELEE_ESC_QUITS"] = "1"  # Esc closes the game (fullscreen too), back to the launcher
     env["MELEE_AGENT_RANDOM_STAGES"] = args.random_stages
     if settings.get("box_controller"):
         env.setdefault("MELEE_BOX_CONTROLLER", "1")

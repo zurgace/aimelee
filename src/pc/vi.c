@@ -195,10 +195,24 @@ void pc_frame_boundary(void) {
             pc_log_line("net timing: aurora_update %.1f ms at retrace %u frame %d", elapsed / 1e6,
                 s_retrace_count, pc_net_frame());
     }
+    /* MELEE_ESC_QUITS (set by AI-Melee's play.py): Esc closes the game, e.g.
+     * when it opened fullscreen. Not while the F1 overlay is open: there Esc
+     * closes the overlay. Plain melee-pc leaves Esc alone. */
+    static int esc_quits = -1;
+    if (esc_quits < 0) {
+        const char* e = getenv("MELEE_ESC_QUITS");
+        esc_quits = e != NULL && e[0] != '\0' && e[0] != '0';
+    }
     while (event != NULL && event->type != AURORA_NONE) {
         if (event->type == AURORA_EXIT) {
             pc_exit_requested = true;
         } else if (event->type == AURORA_SDL_EVENT) {
+            if (esc_quits && event->sdl.type == SDL_EVENT_KEY_DOWN &&
+                event->sdl.key.scancode == SDL_SCANCODE_ESCAPE && !event->sdl.key.repeat &&
+                !pc_menu_is_open()) {
+                pc_log_line("Esc: closing the game");
+                pc_exit_requested = true;
+            }
             if (event->sdl.type == SDL_EVENT_KEY_DOWN &&
                 event->sdl.key.scancode == SDL_SCANCODE_F1 && !event->sdl.key.repeat)
                 pc_menu_toggle();

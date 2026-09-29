@@ -114,7 +114,7 @@ For 64-bit Windows 10 or 11 with an up-to-date graphics driver. Nothing is compi
    - **Add desktop shortcut** (bottom of the window) puts AI-Melee on your desktop and in the Start menu, so you don't need the folder again.
    - Choose your disc with **Change...** and press **Play**.
    - **First run only:** a one-time setup. The 2017 agents are converted, the newer Phillip is set up (about 2.5 GB), and the model is timed once. The launcher shows each step; wait for **AI ready**.
-   - **Later starts** take seconds. Close the game window (or press **Quit game**) and the launcher comes back.
+   - **Later starts** take seconds. Press **Esc** in the game (handy in fullscreen), close its window, or press **Quit game**, and the launcher comes back.
 
    `Play AI-Melee.bat` still works too: it starts AI-Melee the old way, with the log in a console window.
 

@@ -52,7 +52,8 @@ Choose your disc with "Change...", pick your options and press Play.
 - Phillip plays P2 from GO! until the match ends; press Start on the
   results screen to go on.
 - Click the game window before playing so it gets the keyboard.
-- Close the game window (or press "Quit game" in the launcher) to stop.
+- Press Esc in the game (also in fullscreen), close its window, or press
+  "Quit game" in the launcher to stop; the launcher comes back.
 
 Options go after the .bat name in a console, for example:
 

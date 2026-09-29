@@ -64,7 +64,7 @@ class StatusTest(unittest.TestCase):
         self.check("play: slippi-ai type: rl, delay 21 frames, 2 characters: Falco, Fox",
                    ("model", "Newer Phillip plays: Falco, Fox"))
         self.check("play: /x/build/melee with Phillip's agents on P2; disc /x/GALE01.iso",
-                   ("game", "Game running. Close the game window to stop."))
+                   ("game", "Game running. Press Esc or close the game window to stop."))
         self.check("[    1.950] agent: client connected (#1)", ("ai", "Loading the AI model..."))
         self.check("[    1.950] agent: client connected (#1)",
                    ("ai", "AI ready: pick your characters and play"), brain="classic")

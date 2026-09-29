@@ -119,7 +119,7 @@ def status_for(line, brain="auto"):
     if m:
         return "model", "Newer Phillip plays: " + m.group(1)
     if line.startswith("play: ") and " with " in line and "; disc " in line:
-        return "game", "Game running. Close the game window to stop."
+        return "game", "Game running. Press Esc or close the game window to stop."
     if line.startswith("agent: client connected"):
         if brain in ("classic", "gomi"):
             return "ai", "AI ready: pick your characters and play"
