@@ -141,9 +141,7 @@ def game_memory(ssbm, players):
     types = dict(ssbm.PlayerMemory._fields_)
     for k in range(2):
         for name in FIELDS:
-            v = getattr(players[k], name)
-            t = types[name].__name__
-            setattr(state.players[k], name, bool(v) if t == "c_bool" else int(v) if t == "c_uint" else float(v))
+            setattr(state.players[k], name, export_weights.ctype_value(types[name], getattr(players[k], name)))
     return state
 
 

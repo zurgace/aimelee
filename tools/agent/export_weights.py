@@ -162,6 +162,20 @@ def random_player(rng, names):
     return vals
 
 
+INT_CODES = set("bBhHiIlLqQ")  # ctypes type codes of the integer types
+
+
+def ctype_value(ftype, v):
+    """v as the Python type a ctypes field of type ftype accepts. By type code, not class name:
+    on Windows c_uint *is* c_ulong (a C long is 32 bits there), so its name is "c_ulong"."""
+    code = getattr(ftype, "_type_", "d")
+    if code == "?":
+        return bool(v)
+    if code in INT_CODES:
+        return int(v)
+    return float(v)
+
+
 def tf_policy(actor, players_hist, prev_actions, delayed, hidden):
     """Run Phillip's graph (actor.run_policy) on one input; returns probs, hidden."""
     import numpy as np
@@ -173,8 +187,7 @@ def tf_policy(actor, players_hist, prev_actions, delayed, hidden):
             p = hist[j].state.players[k]
             for name, v in players_hist[j][k].items():
                 ftype = dict(ssbm.PlayerMemory._fields_)[name]
-                setattr(p, name, bool(v) if ftype.__name__ == "c_bool" else
-                        (int(v) if ftype.__name__ == "c_uint" else float(v)))
+                setattr(p, name, ctype_value(ftype, v))
         hist[j].prev_action = int(prev_actions[j])
     d = ct.vectorizeCTypes(ssbm.SimpleStateAction, list(hist))
     d["hidden"] = hidden

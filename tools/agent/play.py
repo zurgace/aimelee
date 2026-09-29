@@ -217,7 +217,8 @@ def export(agents, phillip, delay=None, out=None):
     try:
         subprocess.run([*uv, "run", *UV_EXPORT, *cmd], check=True)
     except subprocess.CalledProcessError:
-        fail("the export failed (see above). Check your internet connection and run play again.")
+        fail("the export failed (see the error above). If it was a download error, check your internet "
+             "connection and run play again; otherwise please report the error.")
 
 
 def ensure_weights(args):
