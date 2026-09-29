@@ -143,6 +143,12 @@ def status_for(line, brain="auto"):
     m = re.match(r"gomi: match over: (.+)$", line)
     if m:
         return "result", "Gomihyu " + m.group(1)
+    m = re.match(r'gomi: (?:next match she works on|practising this match): "(.+?)" \(', line)
+    if m:
+        return "goal", f'Gomi is working on: "{m.group(1)}"'
+    m = re.match(r"gomi: her practice: (.+)$", line)
+    if m:
+        return "goal", "Her practice: " + m.group(1)
     m = re.match(r"agent: P(\d) opens as (.+?) \(", line)
     if m:
         return "match", f"P{m.group(1)} opens as {m.group(2)}"
@@ -638,7 +644,7 @@ class Launcher:
         self.status[slot] = text
         for w in self.status_box.winfo_children():
             w.destroy()
-        for key in ("start", "setup", "agents", "model", "game", "ai", "match", "gomi", "result", "discord"):
+        for key in ("start", "setup", "agents", "model", "game", "ai", "match", "gomi", "result", "goal", "discord"):
             if key in self.status:
                 mark = "✓" if key in ("agents", "model") or self.status[key].startswith("AI ready") else "•"
                 self.ttk.Label(self.status_box, text=f"{mark}  {self.status[key]}", wraplength=520,

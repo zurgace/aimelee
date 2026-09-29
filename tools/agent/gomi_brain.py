@@ -22,7 +22,8 @@ Her files (per machine, not in git), in tools/agent/gomi/ or $GOMI_DIR, one
 folder per character she plays (mario/, fox/):
   lessons.md        what she has learned, rewritten after each match
   scoreboard.json   per-plan totals, by opponent character
-  matches.jsonl     one summary per match
+  matches.jsonl     one summary per match, with its review (gomi_review.py)
+  drill.json        what she practises next match, in her words, and its baseline
 and rival.json, what she has noticed about the human (for both characters).
 
 Her Discord bot (gomihyu) posts what she says: a file per match and per
@@ -40,6 +41,7 @@ import os
 import random
 import threading
 import time
+import types
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -48,6 +50,7 @@ import bridge
 import fox_moves
 import gomi_handbook
 import gomi_reads
+import gomi_review
 import mario_moves
 import roster
 
@@ -81,12 +84,12 @@ def plan_schema(moves):
             "required": ["plan", "say"]}
 
 
-REFLECT_SCHEMA = {
-    "type": "object",
-    "properties": {"lessons": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_LESSONS},
-                   "line": {"type": "string"}},
-    "required": ["lessons", "line"],
-}
+def reflect_schema(drills):
+    return {"type": "object",
+            "properties": {"lessons": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_LESSONS},
+                           "line": {"type": "string"}, "review": {"type": "string"},
+                           "drill": {"type": "string", "enum": drills}, "goal": {"type": "string"}},
+            "required": ["lessons", "line", "review", "drill", "goal"]}
 
 
 class Ollama:
@@ -224,6 +227,8 @@ class GomiBrain:
         self.migrate()
         self.rival = gomi_reads.Rival(self.dir / "rival.json")
         self.reader = None
+        self.drill = None
+        self.review = None
         self.use(mario_moves)
         self.priors = {}
         self.lock = threading.Lock()
@@ -246,10 +251,30 @@ class GomiBrain:
     def use(self, moves):
         """Play this character (a move library), with its own lessons and scoreboard."""
         self.moves = moves
-        self.player = moves.Player(self.seed, skills=self.rival.skills(moves))
+        self.player = moves.Player(self.seed)
         self.player.reads = self.rival.reads()
         self.char_dir = self.dir / moves.NAME.lower()
         self.scoreboard = Scoreboard(self.char_dir / "scoreboard.json")
+        self.drill = self.load_drill()
+        self.apply_skills()
+
+    def load_drill(self):
+        """What she chose to practise after her last match as this character, or None."""
+        try:
+            drill = json.loads((self.char_dir / "drill.json").read_text())
+        except (OSError, ValueError):
+            return None
+        names = gomi_review.drill_names(self.rival.skills(self.moves))
+        return drill if isinstance(drill, dict) and drill.get("drill") in names else None
+
+    def apply_skills(self):
+        """The techniques she has copied; the one she's practising, nearly always."""
+        skills = self.rival.skills(self.moves)
+        if self.drill and self.drill["drill"].startswith("tech:"):
+            tech = self.drill["drill"].split(":", 1)[1]
+            if tech in skills:
+                skills[tech] = gomi_review.TECH_DRILL_RATE
+        self.player.skills = skills
 
     # ---- the game thread -------------------------------------------------
 
@@ -271,6 +296,13 @@ class GomiBrain:
         self.snapshot = None
         self.lessons = read_lessons(self.char_dir / "lessons.md")
         self.priors = gomi_handbook.priors(self.moves.NAME, self.opponent)
+        self.review = gomi_review.MatchLog()
+        if self.drill:
+            info = gomi_review.drill_info(self.drill["drill"])
+            self.player.knobs.update(info["knobs"])
+            for plan, bias in info["bias"].items():
+                self.priors[plan] = self.priors.get(plan, 0.0) + bias
+            self.log(f'practising this match: "{self.drill["goal"]}" ({self.drill["drill"]}: {info["does"]})')
         self.system = self.match_prompt()
         self.active = True
         self.stop_match = threading.Event()
@@ -301,6 +333,8 @@ class GomiBrain:
             plan = self.plan
         self.count(plan, me, opp)
         self.pad = self.player.step(s, plan)
+        mode = self.player.mode
+        self.review.frame(me, opp, plan if mode == "plan" else mode, s.offstage, s.opp_offstage)
         self.snapshot = (s, me.stocks, opp.stocks, plan)
         return self.pad
 
@@ -310,7 +344,7 @@ class GomiBrain:
         if self.reader.t % 60 == 0:
             self.player.reads = self.rival.reads()
         for tech in learned:
-            self.player.skills = self.rival.skills(self.moves)
+            self.apply_skills()
             if tech not in self.player.skills:
                 continue  # multishine, when she's Mario
             self.log(f"she copies you: {mario_moves.TECHS[tech]}")
@@ -349,34 +383,57 @@ class GomiBrain:
         self.scoreboard.save()
         self.rival.save()
         learned = self.reader.learned if self.reader is not None else []
+        metrics = self.review.metrics(self.player.used)
         record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "opponent": self.opponent, "stage": self.stage,
                   "won": won, "stocks": [my_stocks, their_stocks], "percent": [my_pct, their_pct],
-                  "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned}
-        self.char_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.char_dir / "matches.jsonl", "a") as f:
-            f.write(json.dumps(record) + "\n")
+                  "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned,
+                  "review": self.review.summary(), "metrics": metrics}
+        if self.drill:
+            result = gomi_review.judge(self.drill["drill"], self.drill["goal"], self.drill.get("baseline", 0), metrics)
+            record["drill_result"] = result
+            self.log(f"her practice: {result['text']}")
         ranked = sorted(plans, key=lambda p: self.scoreboard.score(p, self.opponent))
         best = f"; best plan so far {ranked[-1]}, worst {ranked[0]}" if len(ranked) > 1 else ""
         self.log(f"match over: {'won' if won else 'lost'} {my_stocks}-{their_stocks} stocks vs "
                  f"{self.opponent}{best}")
         if ranked:
             record["best_plan"], record["worst_plan"] = ranked[-1], ranked[0]
-        self.reflecting = threading.Thread(target=self.after_match, args=(record,), daemon=True)
+        # What reflecting needs, frozen: the next match may start (as the other character) meanwhile.
+        ctx = types.SimpleNamespace(moves=self.moves, char_dir=self.char_dir, opponent=self.opponent,
+                                    scoreboard=self.scoreboard, skills=dict(self.rival.skills(self.moves)))
+        self.reflecting = threading.Thread(target=self.after_match, args=(record, ctx), daemon=True)
         self.reflecting.start()
 
-    def after_match(self, record):
-        line, lessons = self.reflect(record)
-        self.post(record, line, lessons)
+    def after_match(self, record, ctx):
+        thoughts = self.reflect(record, ctx)
+        record.update(review_in_her_words=thoughts["review"], next_drill=thoughts["drill"], goal=thoughts["goal"])
+        ctx.char_dir.mkdir(parents=True, exist_ok=True)
+        with open(ctx.char_dir / "matches.jsonl", "a") as f:
+            f.write(json.dumps(record) + "\n")
+        self.save_drill(ctx, thoughts, record["metrics"])
+        self.post(record, thoughts, ctx)
 
-    def post(self, record, line, lessons):
+    def save_drill(self, ctx, thoughts, metrics):
+        """Next match's practice, with this match's number to beat."""
+        info = gomi_review.drill_info(thoughts["drill"])
+        drill = {"drill": thoughts["drill"], "goal": thoughts["goal"], "baseline": metrics.get(info["metric"], 0),
+                 "set": time.strftime("%Y-%m-%d %H:%M:%S")}
+        (ctx.char_dir / "drill.json").write_text(json.dumps(drill, indent=1))
+        self.log(f'next match she works on: "{thoughts["goal"]}" ({thoughts["drill"]}: {info["does"]})')
+
+    def post(self, record, thoughts, ctx=None):
         """The match, for her Discord bot to post about."""
-        board = self.scoreboard.data
-        vs = board["records"].get(self.opponent, {})
-        event = {"version": 1, "kind": "match", "time": time.time(), "character": self.moves.NAME,
-                 "opponent_character": self.opponent,
+        ctx = ctx or self
+        board = ctx.scoreboard.data
+        vs = board["records"].get(ctx.opponent, {})
+        event = {"version": 1, "kind": "match", "time": time.time(), "character": ctx.moves.NAME,
+                 "opponent_character": ctx.opponent,
                  "stage": STAGE_NAMES.get(record["stage"], f"stage {record['stage']}"),
                  "won": record["won"], "stocks": record["stocks"], "percent": record["percent"],
-                 "line": line, "lessons": lessons,
+                 "line": thoughts.get("line", ""), "lessons": thoughts.get("lessons", []),
+                 "review": thoughts.get("review", ""), "notes": record.get("review", [])[:4],
+                 "goal": thoughts.get("goal", ""), "drill": thoughts.get("drill"),
+                 "drill_result": record.get("drill_result"),
                  "best_plan": record.get("best_plan"), "worst_plan": record.get("worst_plan"),
                  "record": {"matches": board["matches"], "wins": board["wins"],
                             "matches_vs": vs.get("matches", 0), "wins_vs": vs.get("wins", 0)}}
@@ -417,12 +474,17 @@ class GomiBrain:
         lessons = "\n".join(f"- {ln}" for ln in self.lessons) or "- (none yet: this is your first match)"
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (no numbers yet)"
         rival = "\n".join(f"- {ln}" for ln in self.rival.lines()) or "- (nothing yet)"
+        practice = ""
+        if self.drill:
+            does = gomi_review.drill_info(self.drill["drill"])["does"]
+            practice = (f'This match you\'re practising: "{self.drill["goal"]}". Your moves already {does}; '
+                        "lean on the plans that help with it.\n\n")
         return (f"{persona(self.moves.NAME)}\n\nYou're facing {self.opponent}. Twice a second you're told "
                 f"the situation and choose {self.moves.NAME}'s game plan:\n{plans}\n"
                 "Recovering, teching and getting up happen by themselves.\n\n"
                 f"What every {self.moves.NAME} player knows:\n"
                 f"{gomi_handbook.lines(self.moves.NAME, self.opponent)}\n\n"
-                f"Your lessons from earlier matches:\n{lessons}\n\n"
+                f"{practice}Your lessons from earlier matches:\n{lessons}\n\n"
                 f"What each plan has done against {self.opponent} so far:\n{board}\n\n"
                 "What you've noticed about this human (your moves already punish their habits):\n"
                 f"{rival}\n\n"
@@ -505,46 +567,69 @@ class GomiBrain:
 
     # ---- after the match -------------------------------------------------
 
-    def reflect(self, record):
-        """Her new lessons from the match, and her line about it: (line, lessons)."""
-        lessons = read_lessons(self.char_dir / "lessons.md")
+    def reflect(self, record, ctx):
+        """Her new lessons, her review, and what she'll practise next: a dict of
+        line, lessons, review, drill, goal."""
+        lessons = read_lessons(ctx.char_dir / "lessons.md")
+        drills = gomi_review.drill_names(ctx.skills)
+        fallback = gomi_review.pick_drill(record["metrics"], ctx.skills)
+        thoughts = {"line": "", "lessons": lessons, "review": "", "drill": fallback,
+                    "goal": gomi_review.drill_info(fallback)["goal"]}
         rows = "\n".join(f"- {p}: {t['frames'] / 60:.0f}s, dealt {t['dealt']}%, took {t['taken']}%, "
                          f"KOs {t['kos']}, lost {t['deaths']} stocks" for p, t in record["plans"].items())
-        board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (none)"
+        board = "\n".join(f"- {ln}" for ln in ctx.scoreboard.lines(ctx.opponent)) or "- (none)"
         old = "\n".join(f"- {ln}" for ln in lessons) or "- (none yet)"
+        review = "\n".join(f"- {ln}" for ln in record["review"]) or "- (nothing happened)"
         copied = f"You copied from them this match: {', '.join(record['learned'])}.\n" if record.get("learned") else ""
         noticed = "; ".join(self.rival.lines()) or "nothing yet"
-        user = (f"The match against {self.opponent} is over. You {'WON' if record['won'] else 'LOST'}: "
+        practice = (f"This match you were practising {record['drill_result']['text']}.\n"
+                    if record.get("drill_result") else "")
+        menu = "\n".join(f"- {d}: {gomi_review.drill_info(d)['does']}" for d in drills)
+        user = (f"The match against {ctx.opponent} is over. You {'WON' if record['won'] else 'LOST'}: "
                 f"your stocks {record['stocks'][0]}, theirs {record['stocks'][1]}; "
-                f"percent {record['percent'][0]}% vs {record['percent'][1]}%. "
-                f"Stocks lost while recovering: {record['recovery_deaths']}.\n{copied}"
-                f"What you've noticed about them: {noticed}.\n"
+                f"percent {record['percent'][0]}% vs {record['percent'][1]}%.\n{practice}{copied}"
+                f"What happened:\n{review}\n"
+                f"What you've noticed about them: {noticed}.\n\n"
                 f"Your plans this match:\n{rows or '- (none)'}\n\n"
-                f"All your matches against {self.opponent} (per plan):\n{board}\n\n"
+                f"All your matches against {ctx.opponent} (per plan):\n{board}\n\n"
                 f"Your lessons so far:\n{old}\n\n"
+                f"Drills you can practise next match:\n{menu}\n\n"
                 f"Rewrite your lessons: at most {MAX_LESSONS}, each one short and concrete about which plan to "
                 "use when (keep the old ones that still hold, drop what the numbers disprove), in your own "
-                'voice. Answer in JSON: {"lessons": [...], "line": one dramatic in-character line about '
-                "this match}.")
-        system = f"{persona(self.moves.NAME)}\n\nYou just finished a match and are thinking it over."
+                "voice. Then pick the drill that fixes your biggest weakness this match (keep the same one if "
+                'it didn\'t pay off yet). Answer in JSON: {"lessons": [...], "line": one dramatic in-character '
+                'line about this match, "review": one or two sentences on what went well and what went badly, '
+                'naming the moves and situations, "drill": one of the drills, "goal": what you will work on '
+                "next match, one sentence in your own words}.")
+        system = f"{persona(ctx.moves.NAME)}\n\nYou just finished a match and are thinking it over."
         if self.llm_down:
             self.llm_down = self.llm.check()
         if self.llm_down:
-            self.log("no reflection this time (Ollama isn't answering); the scoreboard still counts the match")
-            return "", lessons
+            self.log("no reflection this time (Ollama isn't answering); her rules pick what to practise")
+            return thoughts
         try:
-            ans = self.llm.chat(system, user, REFLECT_SCHEMA, num_predict=500, temperature=0.7, timeout=120.0)
+            ans = self.llm.chat(system, user, reflect_schema(drills), num_predict=800, temperature=0.7,
+                                timeout=120.0)
         except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as e:
             self.log(f"couldn't reflect on the match ({e}); her lessons stay as they were")
-            return "", lessons
+            return thoughts
         new = [str(ln).strip() for ln in ans.get("lessons", []) if str(ln).strip()][:MAX_LESSONS]
         if new:
-            write_lessons(self.char_dir / "lessons.md", new)
-        line = str(ans.get("line") or "").strip()
-        if line:
-            self.log(f'after the match: "{line[:200]}"')
-        self.log(f"{len(new)} lessons in {self.char_dir / 'lessons.md'}")
-        return line, new or lessons
+            write_lessons(ctx.char_dir / "lessons.md", new)
+            thoughts["lessons"] = new
+        thoughts["line"] = str(ans.get("line") or "").strip()
+        thoughts["review"] = str(ans.get("review") or "").strip()
+        if ans.get("drill") in drills:
+            thoughts["drill"] = ans["drill"]
+            thoughts["goal"] = gomi_review.drill_info(ans["drill"])["goal"]
+        if str(ans.get("goal") or "").strip():
+            thoughts["goal"] = str(ans["goal"]).strip()[:200]
+        if thoughts["line"]:
+            self.log(f'after the match: "{thoughts["line"][:200]}"')
+        if thoughts["review"]:
+            self.log(f'her review: "{thoughts["review"][:300]}"')
+        self.log(f"{len(new)} lessons in {ctx.char_dir / 'lessons.md'}")
+        return thoughts
 
 
 def plays(ckind):

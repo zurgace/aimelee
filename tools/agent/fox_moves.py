@@ -50,16 +50,17 @@ class Fox(base.Mario):
         if s.helpless:
             return pad(sx=home * 80)
         beyond = abs(s.x) - s.edge
-        if s.jumps_left > 0 and s.y < 15:
+        early = self.knobs["recover_early"]
+        if s.jumps_left > 0 and s.y < (30 if early else 15):
             self.run(*[pad(sx=home * 80)] * 8)
             return pad(X, sx=home * 80)
         if self.upb_used or s.vy > 0:
             return pad(sx=home * 80)
-        if -12 < s.y < 20 and beyond < 55:
+        if -12 < s.y < 20 and beyond < (40 if early else 55):
             self.upb_used = True
             self.run(*[NEUTRAL] * 20)
             return pad(B, sx=home * 80)                  # Illusion, straight at the stage
-        if s.y < 0 or beyond > 25:
+        if s.y < (10 if early else 0) or beyond > (15 if early else 25):
             self.upb_used = True
             ledge_x = sign(s.x) * s.edge
             dx, dy = ledge_x - s.x, 6 - s.y
@@ -128,6 +129,7 @@ class Fox(base.Mario):
         if s.opp_percent > 100 and self.rng.random() < 0.5:
             return self.hit(pad(cy=80), 30)              # up-smash to kill
         if self.knows("multishine"):
+            self.used["multishine"] += 1
             shines = multishine(self.rng.randint(2, 4))
             self.run(*shines[1:])
             return shines[0]

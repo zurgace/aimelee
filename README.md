@@ -171,7 +171,18 @@ The launcher remembers your choices. While you play, it shows **AI ready**, and 
 - **She reads you** (human players only), and remembers across matches and both her characters:
   - **She copies your tech.** She starts without wavedashing, wavelanding, L-cancelling, SHFFLs, shield drops and multishines (as Fox). The second time she sees you do one, she starts doing it too, mid-match, and says so in Discord. The more you do it, the more she does.
   - **She punishes your habits:** which way you tech, how you get up, your favourite ledge option, and whether you shield or jump when she comes in. After a few sightings she waits where your roll ends, traps your ledge option, and grabs you if you shield a lot. She reacts to tech rolls and getups she sees, too.
-- **After each match:** she reads how it went, what each plan dealt and took, and how she lost her stocks. Then she rewrites her lessons for the next match.
+- **After each match:** she reads a review of it: what hit her and what she was doing at the time, what she hit you with, who won each neutral exchange and how much it was worth, and how each stock was lost. Then she rewrites her lessons, and **picks one thing to practise next match**:
+
+  | drill | what changes next match | judged by |
+  |---|---|---|
+  | recovery | double jump and up-B sooner and higher | stocks lost offstage |
+  | neutral | stays further out, waits for your whiff | share of openings won |
+  | punish | jumps after you with up-airs when a hit sends you up | damage per opening |
+  | defense | shields your attacks up close, grabs out of shield | damage taken per minute |
+  | edgeguard | goes to the ledge whenever you're offstage | edgeguard KOs |
+  | a copied technique | uses it nearly every chance she gets | times she used it |
+
+  Next match she plays with that drill on. Afterwards she compares its number with the match before and says whether it paid off. Her Discord post says what she'll work on next. Without Ollama, her rules pick the drill whose number looks worst.
 - **Across matches:** every plan's results are tallied per opponent, and she sees that scoreboard too. So she changes her game from match to match, but don't expect a pro: she stays a quirky, beatable one.
 
 **Setting up** (Linux; she needs about 3.5 GB of graphics memory next to the game):
@@ -190,7 +201,8 @@ If Ollama isn't running, she still plays, on her rule-based fallback. That fallb
 **Her memory** lives in `tools/agent/gomi/`, one folder per character (`mario/`, `fox/`), so her Fox lessons are separate from her Mario ones:
 - `lessons.md` has her lessons;
 - `scoreboard.json` has every plan's results;
-- `matches.jsonl` has one line per match.
+- `matches.jsonl` has one line per match, with its review;
+- `drill.json` has what she practises next match, and the number to beat.
 
 `tools/agent/gomi/rival.json` holds what she has noticed about you: your techniques and habits.
 

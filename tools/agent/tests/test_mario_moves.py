@@ -217,5 +217,51 @@ class TechTest(unittest.TestCase):
         self.assertFalse(p.button & bridge.BUTTON_R)
 
 
+class KnobTest(unittest.TestCase):
+    """What each drill's settings change (defaults: her everyday game)."""
+
+    def test_space_dist(self):
+        for knobs, backs_off in (({}, False), ({"space_dist": 35}, True)):
+            m = mm.Mario(seed=1)
+            m.knobs.update(knobs)
+            p = m.step(sit(opp_x=30), "space")
+            self.assertEqual(p.stick_x < 0, backs_off, knobs)
+
+    def test_recover_early(self):
+        falling = sit(x=110, y=5, air=True, jumps_left=0, vy=-1.0, edge=85.566)
+        m = mm.Mario(seed=1)
+        self.assertFalse(m.step(falling, "space").button & bridge.BUTTON_B, "not yet")
+        m = mm.Mario(seed=1)
+        m.knobs["recover_early"] = True
+        self.assertTrue(m.step(falling, "space").button & bridge.BUTTON_B, "up-B now")
+
+    def test_follow_up(self):
+        launched = sit(opp_x=10, opp_y=25, opp_air=True, opp_motion=0x57)
+        m = mm.Mario(seed=1)
+        m.knobs["follow_up"] = 0.0
+        self.assertNotEqual(m.step(launched, "space").button, bridge.BUTTON_X)
+        m = mm.Mario(seed=1)
+        m.knobs["follow_up"] = 1.0
+        self.assertEqual(m.step(launched, "space").button, bridge.BUTTON_X, "jump after them")
+        up = m.step(sit(opp_x=10, opp_y=25, opp_air=True, opp_motion=0x57, air=True, y=15, x=5), "space")
+        self.assertEqual(up.cstick_y, 80, "up-air")
+
+    def test_shield_react(self):
+        swing = sit(opp_x=15, opp_motion=0x3C)
+        m = mm.Mario(seed=1)
+        self.assertFalse(m.step(swing, "space").button & bridge.BUTTON_R)
+        m = mm.Mario(seed=1)
+        m.knobs["shield_react"] = 1.0
+        pads = [m.step(swing, "space") for _ in range(11)]
+        self.assertTrue(all(p.button & bridge.BUTTON_R for p in pads))
+        self.assertTrue(pads[-1].button & bridge.BUTTON_A, "grab out of shield")
+
+    def test_ledge_early(self):
+        offstage = sit(opp_x=110, opp_y=-20, opp_air=True)
+        m = mm.Mario(seed=1)
+        m.knobs["ledge_early"] = True
+        self.assertGreater(m.step(offstage, "pressure").stick_x, 0, "to the ledge on their side")
+
+
 if __name__ == "__main__":
     unittest.main()

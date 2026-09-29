@@ -12,7 +12,7 @@ frame and is followed by a release, so nothing is held by accident.
 """
 
 import random
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, replace
 
 import bridge
@@ -88,6 +88,18 @@ GETTING_UP = {0xBA: 22, 0xC2: 22, 0xBC: 26, 0xC4: 26, 0xBD: 26, 0xC5: 26}  # sta
 LYING = (0xB7, 0xB8, 0xBF, 0xC0)                 # missed tech, lying there
 LEDGE_ROLLS = (0x102, 0x103)
 ROLL = 30                                        # about how far a tech or getup roll goes
+ATTACKS = range(0x2C, 0x46)                      # jabs to aerials: they're swinging
+IDLE = (0x0E, 0x12, 0x14, 0x15, 0x2A)            # wait, turn, dash, run, landing: free to act
+
+# Settings her drills change (gomi_review.DRILLS); these defaults are her everyday game.
+KNOBS = {
+    "space_dist": 25,        # spacing: back off when they're closer than this
+    "patience": 0.0,         # approach: chance to space at range instead of running in
+    "recover_early": False,  # double jump and up-B sooner and higher
+    "follow_up": 0.25,       # chance to jump after them when a hit sends them above her
+    "shield_react": 0.0,     # chance to shield an attack up close
+    "ledge_early": False,    # to the ledge whenever they're offstage, whatever the plan
+}
 
 
 def pad(buttons=0, sx=0, sy=0, cx=0, cy=0, r=0):
@@ -224,6 +236,7 @@ class Mario:
         self.combo = None       # a technique in progress: a generator sent each frame's Situation
         self.skills = dict(skills or {})  # TECHS name -> how often she uses it (0..1)
         self.reads = {}   # gomi_reads: habit -> (the human's usual option, its share)
+        self.knobs = dict(KNOBS)
         self.reset()
 
     def reset(self):
@@ -235,6 +248,8 @@ class Mario:
         self.cooldown = 0
         self.l_cancel = None    # this aerial: None (not decided), True (press before landing), False
         self.waveland_tried = False
+        self.reacted = False    # one follow-up or shield per time they're launched or swing
+        self.used = Counter()   # techniques done this match (her drills count them)
 
     def run(self, *pads):
         self.queue.extend(pads)
@@ -257,6 +272,8 @@ class Mario:
     def start(self, combo):
         """Run a technique frame by frame: its first pad now, the rest as it reacts."""
         self.combo = combo
+        if combo.__name__ in TECHS:
+            self.used[combo.__name__] += 1
         return next(combo)
 
     def step(self, s, plan):
@@ -275,6 +292,7 @@ class Mario:
             self.l_cancel = self.knows("l_cancel") or self.knows("shffl")
         if self.l_cancel and s.vy < 0 and s.height is not None and s.height < 10:
             self.l_cancel = False
+            self.used["l_cancel"] += 1
             return True
         return False
 
@@ -306,6 +324,10 @@ class Mario:
                 return self.combo.send(s)
             except StopIteration:
                 self.combo = None
+        if not self.queue or (s.motion in IDLE and all(q == NEUTRAL for q in self.queue)):
+            react = self.react(s)
+            if react is not None:
+                return react
         if self.queue:
             return self.queue.popleft()
         if s.on_ledge:
@@ -321,6 +343,45 @@ class Mario:
 
     # ---- things that never wait for Gomi ----------------------------------
 
+    def react(self, s):
+        """Free on the ground: follow a launched opponent up, or shield their swing (knobs)."""
+        launched = (s.opp_motion in DAMAGE or s.opp_motion == TUMBLING) and s.opp_air
+        swinging = s.opp_motion in ATTACKS and not s.opp_air
+        if not launched and not swinging:
+            self.reacted = False
+            return None
+        if s.air or self.reacted or s.lying or s.holding:
+            return None
+        if launched and 10 < s.dy < 45 and s.dist < 30:
+            self.reacted = True
+            if self.rng.random() < self.knobs["follow_up"]:
+                self.queue.clear()
+                self.mode = "follow"
+                return self.start(self.follow_up())
+        elif swinging and s.dist < 22:
+            self.reacted = True
+            if self.rng.random() < self.knobs["shield_react"]:
+                self.queue.clear()
+                self.mode = "shield"
+                self.run(*[pad(R, r=140)] * 9, pad(R | A, r=140), *[NEUTRAL] * 20)   # hold it, grab out
+                return pad(R, r=140)
+        return None
+
+    def follow_up(self):
+        """Jump after them and up-air (or forward-air) when close."""
+        s = yield pad(X)
+        for i in range(45):
+            if i > 4 and not s.air:
+                return
+            if s.air and s.dist < 16 and abs(s.dy) < 18:
+                s = yield pad(cy=80) if s.dy > 4 else pad(cx=s.facing * 80)
+                for _ in range(40):
+                    if not s.air:
+                        return
+                    s = yield pad(sx=s.toward * 50)
+                return
+            s = yield pad(X if i < 4 else 0, sx=s.toward * 70)     # hold X: a full hop, drift under them
+
     def can_tech(self, s):
         """Knocked down and about to hit the stage: one tech press (a second
         within the window would lock teching out)."""
@@ -333,10 +394,11 @@ class Mario:
         if s.helpless:
             return pad(sx=home * 80)
         beyond = abs(s.x) - s.edge
-        if s.jumps_left > 0 and s.y < 15:
+        early = self.knobs["recover_early"]
+        if s.jumps_left > 0 and s.y < (30 if early else 15):
             self.run(*[pad(sx=home * 80)] * 8)
             return pad(X, sx=home * 80)
-        if not self.upb_used and (s.y < -12 or beyond > 35) and s.vy <= 0:
+        if not self.upb_used and ((s.y < 0 or beyond > 20) if early else (s.y < -12 or beyond > 35)) and s.vy <= 0:
             self.upb_used = True
             self.run(*[pad(sx=home * 60, sy=80)] * 3)
             return pad(B, sx=home * 30, sy=80)
@@ -462,6 +524,10 @@ class Mario:
             chase = self.tech_chase(s)
             if chase is not None:
                 return chase
+        if self.knobs["ledge_early"] and s.opp_offstage and plan != "defend":
+            plan = "edgeguard"
+        if plan == "approach" and s.dist > 30 and self.knobs["patience"] and self.rng.random() < self.knobs["patience"]:
+            plan = "space"
         if plan == "edgeguard" and not s.opp_offstage:
             plan = "space"
         return getattr(self, "plan_" + plan, self.plan_space)(s)
@@ -615,9 +681,10 @@ class Mario:
         return pad(X)                                    # short hop (X released in jumpsquat), fireball
 
     def plan_space(self, s):
-        if s.dist < 25:
+        near = self.knobs["space_dist"]
+        if s.dist < near:
             return self.retreat(s, 5)
-        if s.dist > 45:
+        if s.dist > near + 20:
             self.run(*[pad(sx=s.toward * 50)] * 5)
             return pad(sx=s.toward * 50)                 # walk in
         if self.rng.random() < 0.12:
@@ -702,6 +769,7 @@ class Mario:
                 and s.height is not None and 0 < s.height < 6 and plan in (self.ZONE, "space", "platform")):
             self.waveland_tried = True
             if self.knows("waveland"):
+                self.used["waveland"] += 1
                 direction = -s.toward if s.dist < 30 else s.toward
                 return self.hit(pad(R, sx=direction * 60, sy=-50, r=140), 10)
         close = s.dist < 18 and abs(s.dy) < 20

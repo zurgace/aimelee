@@ -29,8 +29,10 @@ FOX = 0x02
 class FakeOllama:
     """/api/tags and /api/chat, answering plans or reflections as told."""
 
-    def __init__(self, plan="fireball", say="Behold my fireballs!", delay=0.0, broken=False, lessons=None):
+    def __init__(self, plan="fireball", say="Behold my fireballs!", delay=0.0, broken=False, lessons=None,
+                 drill="recovery", goal="Never fall offstage again."):
         self.plan, self.say, self.delay, self.broken = plan, say, delay, broken
+        self.drill, self.goal = drill, goal
         self.lessons = lessons if lessons is not None else ["Fireballs work on Fox."]
         self.requests = []
         fake = self
@@ -55,7 +57,9 @@ class FakeOllama:
                 fake.requests.append(body)
                 time.sleep(fake.delay)
                 if "lessons" in body["format"]["properties"]:
-                    content = json.dumps({"lessons": fake.lessons, "line": "I let you win, mortal."})
+                    content = json.dumps({"lessons": fake.lessons, "line": "I let you win, mortal.",
+                                          "review": "Their forward-air kept catching my approach.",
+                                          "drill": fake.drill, "goal": fake.goal})
                 elif fake.broken:
                     content = "{not json"
                 else:
@@ -289,7 +293,7 @@ class GomiTest(unittest.TestCase):
         b.opponent = "Fox"
         record = {"stage": 0x1F, "won": True, "stocks": [2, 0], "percent": [40, 0]}
         for _ in range(gomi_brain.OUTBOX_KEEP + 5):
-            b.post(record, "", [])
+            b.post(record, {})
         posts = list((Path(self.tmp.name) / "outbox").glob("*.json"))
         self.assertEqual(len(posts), gomi_brain.OUTBOX_KEEP)
         self.assertEqual(json.loads(posts[0].read_text())["stage"], "Battlefield")
@@ -373,6 +377,78 @@ class GomiTest(unittest.TestCase):
         b.close()
         b.stop_match.set()
         self.assertIsNone(b.reader)
+
+    def play_a_match(self, b, fall_offstage=0):
+        """Fireballs land, then she loses `fall_offstage` stocks falling offstage."""
+        g = Game(b)
+        g.start()
+        for pct in range(10, 60, 10):
+            g.opp.percent = pct
+            g.tick()
+        for i in range(fall_offstage):
+            g.me = fighter(x=120, y=-60, air=True)
+            g.me.stocks = 4 - i
+            g.tick()
+            g.me = fighter(x=0)
+            g.me.stocks = 3 - i
+            g.tick()
+        b.end_match()
+        b.close()
+        return g
+
+    def test_she_picks_a_drill_and_practises_it(self):
+        fake = FakeOllama()
+        try:
+            b = self.brain(fake.url)
+            self.play_a_match(b, fall_offstage=1)
+            d = Path(self.tmp.name) / "mario"
+            drill = json.loads((d / "drill.json").read_text())
+            self.assertEqual((drill["drill"], drill["goal"], drill["baseline"]),
+                             ("recovery", "Never fall offstage again.", 1))
+            record = json.loads((d / "matches.jsonl").read_text().splitlines()[-1])
+            self.assertIn("Stocks you lost: fell short recovering.", record["review"])
+            self.assertEqual(record["goal"], "Never fall offstage again.")
+            reflect = next(r for r in fake.requests if "lessons" in r["format"]["properties"])
+            self.assertIn("What happened:", reflect["messages"][1]["content"])
+            self.assertIn("- recovery: recover earlier", reflect["messages"][1]["content"])
+            event = self.match_events()[-1]
+            self.assertEqual((event["goal"], event["drill"], event["review"]),
+                             ("Never fall offstage again.", "recovery",
+                              "Their forward-air kept catching my approach."))
+            self.assertIsNone(event["drill_result"])
+
+            # Next match: the drill is on, and judged against the first match's number.
+            self.logs.clear()
+            g = Game(b)
+            g.start()
+            self.assertTrue(b.player.knobs["recover_early"])
+            self.assertIn('practising: "Never fall offstage again."', b.system)
+            self.assertLess(b.priors["edgeguard"], gomi_handbook_priors("Mario", "Fox")["edgeguard"])
+            b.stop_match.set()
+            self.play_a_match(b, fall_offstage=0)
+            event = self.match_events()[-1]
+            self.assertEqual(event["drill_result"]["verdict"], "better")
+            self.assertEqual((event["drill_result"]["before"], event["drill_result"]["after"]), (1, 0))
+            self.assertTrue(any("her practice:" in ln and "better" in ln for ln in self.logs))
+        finally:
+            fake.close()
+
+    def test_rules_pick_a_drill_without_ollama(self):
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        self.play_a_match(b, fall_offstage=2)
+        drill = json.loads((Path(self.tmp.name) / "mario" / "drill.json").read_text())
+        self.assertEqual(drill["drill"], "recovery")
+        self.assertEqual(drill["baseline"], 2)
+        self.assertEqual(self.match_events()[-1]["goal"], drill["goal"])
+
+    def match_events(self):
+        files = sorted((Path(self.tmp.name) / "outbox").glob("*.json"))
+        return [e for e in (json.loads(p.read_text()) for p in files) if e["kind"] == "match"]
+
+
+def gomi_handbook_priors(char, opp):
+    import gomi_handbook
+    return gomi_handbook.priors(char, opp)
 
 
 if __name__ == "__main__":
