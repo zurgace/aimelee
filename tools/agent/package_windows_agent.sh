@@ -43,7 +43,10 @@ cp "${SCRIPT_DIR}"/*.py "${SCRIPT_DIR}/requirements.txt" "${SCRIPT_DIR}/slippi-r
 # Windows tools want CRLF in the files people open by hand.
 sed 's/$/\r/' "${SCRIPT_DIR}/windows/Play AI-Melee.bat" > "${ROOT_IN_ZIP}/Play AI-Melee.bat"
 sed 's/$/\r/' "${SCRIPT_DIR}/windows/README-AI-Melee.txt" > "${ROOT_IN_ZIP}/README-AI-Melee.txt"
+# The launcher window: AI-Melee.pyw opens it without a console; its icon goes beside launcher.py.
+cp "${SCRIPT_DIR}/windows/AI-Melee.pyw" "${ROOT_IN_ZIP}/AI-Melee.pyw"
+cp "${ROOT_DIR}/platforms/windows/melee.ico" "${ROOT_DIR}/platforms/linux/melee.png" "${ROOT_IN_ZIP}/ai-melee/"
 
 (cd "${STAGE}" && zip -qr9 "${OUT_ZIP}" .)
 echo "=== ${OUT_ZIP} ==="
-unzip -l "${OUT_ZIP}" | grep -E "melee.exe|ai-melee/play.py|Play AI-Melee.bat|README-AI-Melee.txt"
+unzip -l "${OUT_ZIP}" | grep -E "melee.exe|ai-melee/play.py|ai-melee/launcher.py|AI-Melee.pyw|Play AI-Melee.bat|README-AI-Melee.txt"

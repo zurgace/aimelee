@@ -104,20 +104,19 @@ For 64-bit Windows 10 or 11 with an up-to-date graphics driver. Nothing is compi
 3. **Download AI-Melee.**
    - Open the [Releases page](https://github.com/zurgace/aimelee/releases) and download `AI-Melee-Windows-x86_64.zip` from the newest release.
    - Right-click the zip, choose **Extract All...**, and extract it somewhere you own, for example `C:\Games`. Not under `C:\Program Files`: the AI saves files next to itself.
-   - You get a folder `AI-Melee` with `melee.exe`, `Play AI-Melee.bat` and an `ai-melee` folder.
+   - You get a folder `AI-Melee` with `melee.exe`, `AI-Melee.pyw`, `Play AI-Melee.bat` and an `ai-melee` folder.
 
 4. **Download Phillip.**
    - On [github.com/vladfi1/phillip](https://github.com/vladfi1/phillip), click the green **Code** button, then **Download ZIP**.
    - Extract it into the `AI-Melee` folder, so that folder now also contains `phillip-master`.
 
-5. **Play.** Double-click `Play AI-Melee.bat`.
-   - **First run only:**
-     - a window asks for your disc image (it may open behind the console);
-     - then a one-time setup: the 2017 agents are converted, the newer Phillip is set up (about 2.5 GB), and the model is timed once.
+5. **Play.** Double-click `AI-Melee.pyw`. The AI-Melee launcher opens, the same window as on Linux.
+   - **Add desktop shortcut** (bottom of the window) puts AI-Melee on your desktop and in the Start menu, so you don't need the folder again.
+   - Choose your disc with **Change...** and press **Play**.
+   - **First run only:** a one-time setup. The 2017 agents are converted, the newer Phillip is set up (about 2.5 GB), and the model is timed once. The launcher shows each step; wait for **AI ready**.
+   - **Later starts** take seconds. Close the game window (or press **Quit game**) and the launcher comes back.
 
-     Wait for `slippi: model ready` in the console.
-   - **Later starts** take seconds.
-   - **The console window** stays open with the AI's log. Close the game window to stop.
+   `Play AI-Melee.bat` still works too: it starts AI-Melee the old way, with the log in a console window.
 
 **Updating:** download the newest zip and extract it over your `AI-Melee` folder. Your settings and the converted agents are kept.
 
@@ -152,7 +151,7 @@ A gamepad on port 1 works too, and so does an official GameCube adapter. Click t
   - Ganondorf and Roy borrow Falcon's and Marth's agents.
 - **Anyone else** stands still, so pick someone else for P2 (or set P2 to CPU for the game's own AI).
 
-**Launcher options (Linux).**
+**Launcher options.**
 - **AI:**
   - **Best available** (default): the newer Phillip where it can, the 2017 agents for the rest;
   - **Newer Phillip only**;
@@ -162,7 +161,7 @@ A gamepad on port 1 works too, and so does an official GameCube adapter. Click t
 
 The launcher remembers your choices. While you play, it shows **AI ready**, and who plays P2 each match. **Show log** has the details, which are also saved in `tools/agent/ai-melee.log`.
 
-On Windows, `Play AI-Melee.bat` passes options to `play.py`, for example `& '.\Play AI-Melee.bat' --brain classic` in PowerShell.
+`Play AI-Melee.bat` (Windows) passes options to `play.py` from a console, for example `& '.\Play AI-Melee.bat' --brain classic` in PowerShell.
 
 ## Gomihyu takes over P2 (optional)
 
@@ -206,12 +205,13 @@ Delete that folder to start her over. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point h
   - Windows: `AI-Melee\phillip-master`.
 - **Can't dash on a box controller** (HayBox, B0XX, Frame1): these send the stick values Dolphin reads, and the game has to read them the same way.
   - Boxes in DInput mode are recognised by name.
-  - One in XInput mode (most Pico-based HayBox boxes) looks like an Xbox pad. On Linux tick **I play on a box controller** in the launcher. On Windows run `& '.\Play AI-Melee.bat' --box-controller on` once in PowerShell; it's remembered.
+  - One in XInput mode (most Pico-based HayBox boxes) looks like an Xbox pad. Tick **I play on a box controller** in the launcher.
 - **The launcher doesn't open (Linux):** install Tk with `sudo pacman -S tk`.
 - **The game doesn't start, or shows a black window:** update your graphics driver.
   - On Windows, double-click `RUN-AND-LOG.bat` and read `melee-pc.log`.
   - melee-pc's [FAQ](https://999sian.github.io/melee-pc/) covers first-run problems.
-- **Anything else:** the full log is behind **Show log** (Linux) or in the console window (Windows).
+- **The launcher doesn't open (Windows):** run the python.org installer again, choose **Modify**, and tick **tcl/tk and IDLE**. Or use `Play AI-Melee.bat`.
+- **Anything else:** the full log is behind **Show log** in the launcher (also saved in `ai-melee.log`), or in the console window with `Play AI-Melee.bat`.
 
 ## For the maintainer: publishing the Windows download
 

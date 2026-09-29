@@ -134,6 +134,37 @@ class ShortcutTest(unittest.TestCase):
                 self.assertFalse(any(p.exists() for p in written))
 
 
+class WindowsTest(unittest.TestCase):
+    """The Windows parts that can be checked anywhere."""
+
+    def test_shortcut_script(self):
+        script = launcher.windows_shortcut_script(r"C:\Py\pythonw.exe", '"C:\\Users\\O\'Neil\\launcher.py"',
+                                                  r"C:\Users\O'Neil", r"C:\Users\O'Neil\melee.ico")
+        self.assertIn("GetFolderPath('Desktop')", script)
+        self.assertIn("GetFolderPath('Programs')", script)
+        self.assertIn(r"$s.TargetPath = 'C:\Py\pythonw.exe'", script)
+        self.assertIn(r"$s.WorkingDirectory = 'C:\Users\O''Neil'", script, "a ' in a path is doubled")
+        removal = launcher.windows_shortcut_script("", "", "", "", remove=True)
+        self.assertIn("Remove-Item -LiteralPath $lnk", removal)
+        self.assertNotIn("CreateShortcut", removal)
+
+    def test_pythons_and_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            py, pyw = Path(tmp) / "python.exe", Path(tmp) / "pythonw.exe"
+            py.write_bytes(b"")
+            pyw.write_bytes(b"")
+            self.assertEqual(launcher.windowless_python(py), pyw)
+            self.assertEqual(launcher.console_python(pyw), py)
+            self.assertEqual(launcher.console_python(py), py)
+        self.assertEqual(launcher.windowless_python("/usr/bin/python3"), Path("/usr/bin/python3"))
+        self.assertEqual(launcher.stop_command(42), ["taskkill", "/PID", "42", "/T", "/F"])
+
+    def test_pyw_runs_the_launcher(self):
+        pyw = (AGENT / "windows" / "AI-Melee.pyw").read_text()
+        self.assertIn('"ai-melee" / "launcher.py"', pyw)
+        compile(pyw, "AI-Melee.pyw", "exec")
+
+
 WINDOW_RUN = textwrap.dedent("""
     import sys
     from pathlib import Path

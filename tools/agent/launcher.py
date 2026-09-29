@@ -5,14 +5,18 @@
     python3 tools/agent/launcher.py --install    add AI-Melee to the app menu and the desktop
     python3 tools/agent/launcher.py --uninstall  remove those shortcuts again
 
+On Windows, double-click AI-Melee.pyw in the AI-Melee folder (no console
+window); the launcher's "Add desktop shortcut" button, or --install, puts
+AI-Melee on the desktop and in the Start menu.
+
 The window offers play.py's common options (which AI, P2's random character,
 tournament random stages, the disc) and remembers them in settings.json.
 Play runs play.py and shows its progress -- first-run setup, "AI ready", who
 plays P2 -- while the game is open; the full log is one click away and in
 ai-melee.log beside this file. Closing the game brings the launcher back.
 
-Needs Tk (Arch/CachyOS: sudo pacman -S tk). play.py keeps working from a
-terminal as before.
+Needs Tk (Arch/CachyOS: sudo pacman -S tk; python.org's Windows installer
+includes it). play.py keeps working from a terminal as before.
 """
 
 import argparse
@@ -31,8 +35,14 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 PLAY = HERE / "play.py"
 LOG = HERE / "ai-melee.log"
-ICON = ROOT / "platforms" / "linux" / "melee.png"
+WINDOWS = os.name == "nt"
+# The icon: beside this file in the Windows download, in platforms/ in a checkout.
+ICON = next((p for p in (HERE / "melee.png", ROOT / "platforms" / "linux" / "melee.png") if p.exists()),
+            ROOT / "platforms" / "linux" / "melee.png")
+ICO = next((p for p in (HERE / "melee.ico", ROOT / "platforms" / "windows" / "melee.ico") if p.exists()),
+           HERE / "melee.ico")
 APP_ID = "ai-melee"
+CREATE_NO_WINDOW = 0x08000000  # Windows: run play.py (and what it starts) without a console window
 sys.path.insert(0, str(HERE))
 
 import play  # noqa: E402  (no numpy needed at import)
@@ -201,6 +211,8 @@ def shortcut_paths(home):
 
 
 def install(home, python=sys.executable):
+    if WINDOWS:
+        return windows_install(python)
     entry = desktop_entry(python, Path(__file__).resolve(), ICON)
     written = []
     for p in shortcut_paths(home):
@@ -216,6 +228,8 @@ def install(home, python=sys.executable):
 
 
 def uninstall(home):
+    if WINDOWS:
+        return windows_uninstall()
     removed = []
     for p in shortcut_paths(home):
         if p.exists():
@@ -224,9 +238,89 @@ def uninstall(home):
     return removed
 
 
+# ---------------------------------------------------------------- Windows
+
+def windowless_python(python):
+    """pythonw.exe beside python.exe: the launcher without a console window."""
+    p = Path(python)
+    w = p.with_name("pythonw.exe")
+    return w if p.name.lower() == "python.exe" and w.exists() else p
+
+
+def console_python(python):
+    """python.exe beside pythonw.exe: play.py's output needs a real stdout."""
+    p = Path(python)
+    c = p.with_name("python.exe")
+    return c if p.name.lower() == "pythonw.exe" and c.exists() else p
+
+
+def _ps_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def windows_shortcut_script(target, arguments, workdir, icon, remove=False):
+    """PowerShell that puts AI-Melee.lnk on the desktop and in the Start menu
+    (or removes them), printing each path; WScript.Shell makes the .lnk."""
+    lines = ["$places = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))",
+             "foreach ($d in $places) {",
+             "  $lnk = Join-Path $d 'AI-Melee.lnk'"]
+    if remove:
+        lines += ["  if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk; Write-Output $lnk }"]
+    else:
+        lines += ["  $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)",
+                  f"  $s.TargetPath = {_ps_quote(target)}",
+                  f"  $s.Arguments = {_ps_quote(arguments)}",
+                  f"  $s.WorkingDirectory = {_ps_quote(workdir)}",
+                  f"  $s.IconLocation = {_ps_quote(icon)}",
+                  "  $s.Description = 'Play Super Smash Bros. Melee against the Phillip AI'",
+                  "  $s.Save()",
+                  "  Write-Output $lnk"]
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _powershell(script):
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                       capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+    if r.returncode != 0:
+        raise OSError(r.stderr.strip() or "PowerShell failed")
+    return [Path(ln) for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def windows_install(python=sys.executable):
+    launcher = Path(__file__).resolve()
+    return _powershell(windows_shortcut_script(windowless_python(python), f'"{launcher}"', launcher.parent, ICO))
+
+
+def windows_uninstall():
+    return _powershell(windows_shortcut_script("", "", "", "", remove=True))
+
+
+def windows_shortcut_exists():
+    desktop = Path(os.environ.get("USERPROFILE", Path.home())) / "Desktop" / "AI-Melee.lnk"
+    appdata = Path(os.environ.get("APPDATA", Path.home())) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    return desktop.exists() or (appdata / "AI-Melee.lnk").exists()
+
+
+def stop_command(pid):
+    """Windows can't ask play.py to stop (no SIGTERM): end it, the game and the AI together."""
+    return ["taskkill", "/PID", str(pid), "/T", "/F"]
+
+
 # ---------------------------------------------------------------- the window
 
 def no_tk_message():
+    if WINDOWS:
+        msg = ("AI-Melee's launcher needs Tk, which this Python doesn't have.\n"
+               "Run the python.org installer again, choose Modify, tick 'tcl/tk and IDLE', "
+               "and open AI-Melee again. (Play AI-Melee.bat works without it.)")
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, msg, "AI-Melee", 0x10)
+        except (ImportError, AttributeError, OSError):
+            pass
+        print(msg, file=sys.stderr)
+        return
     msg = ("AI-Melee's launcher needs Tk for its window.\n"
            "Install it (CachyOS/Arch: sudo pacman -S tk) and open AI-Melee again.")
     for cmd in (["kdialog", "--title", "AI-Melee", "--error", msg],
@@ -239,8 +333,10 @@ def no_tk_message():
 
 
 def native_file_dialog(start):
-    """KDE's or GNOME's own file picker when there is one."""
+    """KDE's or GNOME's own file picker when there is one (Tk's is the native one on Windows)."""
     start = str(start or Path.home())
+    if WINDOWS:
+        return False, None
     if shutil.which("kdialog"):
         cmd = ["kdialog", "--title", "Choose your Melee disc image (NTSC-U 1.02)", "--getopenfilename",
                start, "Disc images (*.iso *.gcm *.ciso *.rvz)|All files (*)"]
@@ -260,19 +356,28 @@ class Launcher:
         self.settings = play.load_settings()
         self.opts = load_options(self.settings)
         self.proc = None
+        self.stopping = False
         self.lines = []
         self.lines_q = queue.Queue()
         self.status = {}
 
+        if WINDOWS:
+            try:  # sharp text on scaled displays
+                import ctypes
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            except (ImportError, AttributeError, OSError):
+                pass
         root = self.root = tk.Tk(className=APP_ID)
         root.title("AI-Melee")
         root.resizable(True, True)
         root.minsize(460, 0)
-        if ICON.exists():
-            try:
+        try:
+            if WINDOWS and ICO.exists():
+                root.iconbitmap(default=str(ICO))
+            elif ICON.exists():
                 root.iconphoto(True, tk.PhotoImage(file=str(ICON)))
-            except tk.TclError:
-                pass
+        except tk.TclError:
+            pass
         style = ttk.Style(root)
         if "clam" in style.theme_names():
             style.theme_use("clam")
@@ -331,6 +436,9 @@ class Launcher:
         bar.pack(fill="x", pady=(12, 0))
         self.log_button = ttk.Button(bar, text="Show log", command=self.toggle_log)
         self.log_button.pack(side="left")
+        if WINDOWS and not windows_shortcut_exists():
+            self.shortcut_button = ttk.Button(bar, text="Add desktop shortcut", command=self.add_shortcut)
+            self.shortcut_button.pack(side="left", padx=(8, 0))
         self.play_button = ttk.Button(bar, text="Play", style="Play.TButton", command=self.play)
         self.play_button.pack(side="right")
         self.stop_button = ttk.Button(bar, text="Quit game", command=self.stop)
@@ -348,6 +456,16 @@ class Launcher:
         state = "disabled" if self.gomi.get() else "!disabled"
         for button in self.brain_buttons:
             button.state([state])
+
+    def add_shortcut(self):
+        try:
+            made = install(Path.home())
+        except OSError as e:
+            self.messagebox.showerror("AI-Melee", f"Couldn't make the shortcut:\n\n{e}", parent=self.root)
+            return
+        self.shortcut_button.pack_forget()
+        self.messagebox.showinfo("AI-Melee", "AI-Melee is on your desktop and in the Start menu now:\n\n"
+                                 + "\n".join(str(p) for p in made), parent=self.root)
 
     def show_disc(self):
         d = self.opts.get("disc")
@@ -384,14 +502,17 @@ class Launcher:
             w.destroy()
         self.set_log("")
         self.set_status("start", "Starting...")
-        cmd = [sys.executable, "-u", str(PLAY), *play_args(self.opts)]
+        cmd = [str(console_python(sys.executable)), "-u", str(PLAY), *play_args(self.opts)]
         try:
             self.logfile = open(LOG, "w", encoding="utf-8", errors="replace")
         except OSError:
             self.logfile = None
         self.append(f"$ {' '.join(cmd)}")
+        self.stopping = False
         self.proc = subprocess.Popen(cmd, cwd=str(HERE), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     stdin=subprocess.DEVNULL, text=True, errors="replace", bufsize=1)
+                                     stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                                     bufsize=1, creationflags=CREATE_NO_WINDOW if WINDOWS else 0,
+                                     env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         threading.Thread(target=self.read, args=(self.proc,), daemon=True).start()
         self.options.pack_forget()
         self.running.pack(fill="x")
@@ -430,20 +551,28 @@ class Launcher:
         self.options.pack(fill="x")
         self.stop_button.pack_forget()
         self.play_button.pack(side="right")
-        if code not in (0, -signal.SIGTERM):
+        if code not in (0, -signal.SIGTERM) and not self.stopping:
             why = failure_text(self.lines) or f"it stopped with code {code}"
             if not self.log_shown:
                 self.toggle_log()
             self.messagebox.showerror("AI-Melee", f"AI-Melee could not keep going:\n\n{why}\n\n"
                                       f"The full log is below and in {LOG}.", parent=self.root)
 
+    def end_play(self):
+        """play.py closes the game and the AI on SIGTERM; on Windows they end together."""
+        self.stopping = True
+        if WINDOWS:
+            subprocess.run(stop_command(self.proc.pid), capture_output=True, creationflags=CREATE_NO_WINDOW)
+        else:
+            self.proc.terminate()
+
     def stop(self):
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()  # play.py closes the game and the AI
+            self.end_play()
 
     def close(self):
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+            self.end_play()
             try:
                 self.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
@@ -500,9 +629,11 @@ def main():
     if args.install:
         for p in install(home):
             print(f"launcher: added {p}")
-        print("launcher: open AI-Melee from your app menu (Games) or the desktop")
+        print("launcher: open AI-Melee from the " + ("Start menu" if WINDOWS else "app menu (Games)")
+              + " or the desktop")
         if importlib.util.find_spec("tkinter") is None:
-            print("launcher: this Python has no Tk yet, which the window needs: sudo pacman -S tk")
+            print("launcher: this Python has no Tk yet, which the window needs"
+                  + ("" if WINDOWS else ": sudo pacman -S tk"))
         return
     if args.uninstall:
         removed = uninstall(home)

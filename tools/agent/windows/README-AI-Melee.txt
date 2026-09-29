@@ -29,12 +29,14 @@ One-time setup
 
 Playing
 -------
-Double-click "Play AI-Melee.bat".
+Double-click "AI-Melee.pyw": the AI-Melee launcher opens. Its "Add desktop
+shortcut" button puts AI-Melee on your desktop and in the Start menu.
+Choose your disc with "Change...", pick your options and press Play.
+("Play AI-Melee.bat" still works too, with the log in a console window.)
 
-- The first time, a window asks for your disc image; the choice is
-  remembered. Then a one-time setup: it converts the 2017 agents, sets up
+- The first time, choose your disc; the choice is remembered. Then a one-time setup: it converts the 2017 agents, sets up
   the newer Phillip (slippi-ai, about 2.5 GB) and downloads its model. This
-  takes a while; later starts take seconds. Wait for "slippi: model ready".
+  takes a while; later starts take seconds. Wait for "AI ready".
 - In the game: take P1 (keyboard, or a controller) and pick anyone.
   With P1's cursor click P2's door once: P2 opens as HMN with a random
   character an AI plays (three more clicks roll again). To choose it
@@ -48,8 +50,7 @@ Double-click "Play AI-Melee.bat".
 - Phillip plays P2 from GO! until the match ends; press Start on the
   results screen to go on.
 - Click the game window before playing so it gets the keyboard.
-- Close the game window, or press Ctrl-C in the black console window, to
-  stop.
+- Close the game window (or press "Quit game" in the launcher) to stop.
 
 Options go after the .bat name in a console, for example:
 
@@ -68,8 +69,10 @@ Troubleshooting
 - The game itself will not start or shows a black screen: update your GPU
   driver, then run RUN-AND-LOG.bat and read melee-pc.log.
 - Wrong disc remembered: delete ai-melee\settings.json.
-- A box controller (HayBox, B0XX, Frame1) can't dash: run
-  "Play AI-Melee.bat" --box-controller on   once; it's remembered.
+- A box controller (HayBox, B0XX, Frame1) can't dash: tick "I play on a box
+  controller" in the launcher.
+- The launcher doesn't open: run the python.org installer again, choose
+  Modify, tick "tcl/tk and IDLE". Or use "Play AI-Melee.bat".
 
 Updating
 --------
