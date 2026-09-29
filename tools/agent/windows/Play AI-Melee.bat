@@ -1,5 +1,6 @@
 @echo off
-REM Starts melee.exe with Phillip playing port 2 (see README-AI-Melee.txt).
+REM Starts AI-Melee with the log in this console window (AI-Melee.exe is the
+REM usual way, with the launcher window; see README-AI-Melee.txt).
 REM Extra arguments go to play.py, for example: "Play AI-Melee.bat" --quick
 setlocal
 cd /d "%~dp0"

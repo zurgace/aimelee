@@ -25,11 +25,13 @@ One-time setup
 
 4. Get Phillip: open https://github.com/vladfi1/phillip, click the green
    "Code" button, then "Download ZIP". Extract it into this folder, so that
-   this folder contains a "phillip-master" folder next to melee.exe.
+   this folder contains a "phillip-master" folder next to AI-Melee.exe.
 
 Playing
 -------
-Double-click "AI-Melee.pyw": the AI-Melee launcher opens. Its "Add desktop
+Double-click "AI-Melee.exe": the AI-Melee launcher opens. (The game itself
+is in the "game" folder; starting game\melee.exe directly gives the plain game
+without the AI.) Its "Add desktop
 shortcut" button puts AI-Melee on your desktop and in the Start menu.
 Choose your disc with "Change...", pick your options and press Play.
 ("Play AI-Melee.bat" still works too, with the log in a console window.)
@@ -67,7 +69,9 @@ Troubleshooting
   127.0.0.1 (this computer); allowing or cancelling makes no difference to
   it. Netplay needs it allowed.
 - The game itself will not start or shows a black screen: update your GPU
-  driver, then run RUN-AND-LOG.bat and read melee-pc.log.
+  driver, then run game\RUN-AND-LOG.bat and read game\melee-pc.log.
+- AI-Melee.exe says it needs Python: install it as in step 1, with "Add
+  python.exe to PATH" ticked.
 - Wrong disc remembered: delete ai-melee\settings.json.
 - A box controller (HayBox, B0XX, Frame1) can't dash: tick "I play on a box
   controller" in the launcher.

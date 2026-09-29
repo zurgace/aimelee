@@ -133,13 +133,13 @@ def find_melee(explicit):
     if explicit:
         return Path(explicit)
     names = ["melee.exe", "melee"] if WINDOWS else ["melee", "melee.exe"]
-    for d in (ROOT / "build", BUNDLE, BUNDLE.parent):
+    for d in (ROOT / "build", BUNDLE / "game", BUNDLE, BUNDLE.parent):
         for n in names:
             if (d / n).is_file():
                 return d / n
     fail("cannot find the game. From a checkout build it first (cmake -B build -G Ninja && "
          "ninja -C build); on Windows keep the ai-melee folder inside the unzipped AI-Melee "
-         "folder, next to melee.exe. Or pass --melee <path to melee(.exe)>.")
+         "folder, next to the game folder. Or pass --melee <path to melee(.exe)>.")
 
 
 def find_phillip(explicit, agent):

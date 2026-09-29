@@ -159,10 +159,36 @@ class WindowsTest(unittest.TestCase):
         self.assertEqual(launcher.windowless_python("/usr/bin/python3"), Path("/usr/bin/python3"))
         self.assertEqual(launcher.stop_command(42), ["taskkill", "/PID", "42", "/T", "/F"])
 
-    def test_pyw_runs_the_launcher(self):
-        pyw = (AGENT / "windows" / "AI-Melee.pyw").read_text()
-        self.assertIn('"ai-melee" / "launcher.py"', pyw)
-        compile(pyw, "AI-Melee.pyw", "exec")
+    def test_shortcut_prefers_the_exe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / "AI-Melee.exe"
+            with mock.patch.object(launcher, "EXE", exe), mock.patch.object(launcher, "BUNDLE", Path(tmp)):
+                target, args, workdir, _ = launcher.shortcut_target("/py/pythonw.exe")
+                self.assertEqual((args, workdir), (f'"{Path(launcher.__file__).resolve()}"', launcher.HERE))
+                exe.write_bytes(b"MZ")
+                self.assertEqual(launcher.shortcut_target("/py/pythonw.exe"), (exe, "", Path(tmp), exe))
+
+    def test_old_top_level_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = Path(tmp)
+            (b / "game").mkdir()
+            (b / "ai-melee").mkdir()
+            (b / "resources").mkdir()
+            for n in ("melee.exe", "SDL3.dll", "notes.txt"):
+                (b / n).write_bytes(b"")
+            (b / "game" / "old-top-level.txt").write_text(
+                "melee.exe\r\nSDL3.dll\r\nresources\r\nmissing.dll\r\nai-melee\r\ngame\r\n")
+            old = launcher.old_top_level(b)
+            self.assertEqual(sorted(p.name for p in old), ["SDL3.dll", "melee.exe", "resources"])
+            launcher.remove_paths(old)
+            self.assertEqual(sorted(p.name for p in b.iterdir()), ["ai-melee", "game", "notes.txt"])
+            self.assertEqual(launcher.old_top_level(b), [])
+            self.assertEqual(launcher.old_top_level(b / "nowhere"), [])
+
+    def test_exe_source(self):
+        c = (AGENT / "windows" / "ai_melee_exe.c").read_text()
+        self.assertIn('L"%ls\\\\ai-melee\\\\launcher.py"', c)
+        self.assertIn("pyw.exe", c)
 
 
 WINDOW_RUN = textwrap.dedent("""

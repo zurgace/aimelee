@@ -5,7 +5,7 @@
     python3 tools/agent/launcher.py --install    add AI-Melee to the app menu and the desktop
     python3 tools/agent/launcher.py --uninstall  remove those shortcuts again
 
-On Windows, double-click AI-Melee.pyw in the AI-Melee folder (no console
+On Windows, double-click AI-Melee.exe in the AI-Melee folder (no console
 window); the launcher's "Add desktop shortcut" button, or --install, puts
 AI-Melee on the desktop and in the Start menu.
 
@@ -42,6 +42,8 @@ ICON = next((p for p in (HERE / "melee.png", ROOT / "platforms" / "linux" / "mel
 ICO = next((p for p in (HERE / "melee.ico", ROOT / "platforms" / "windows" / "melee.ico") if p.exists()),
            HERE / "melee.ico")
 APP_ID = "ai-melee"
+BUNDLE = HERE.parent  # the AI-Melee folder, in the Windows download
+EXE = BUNDLE / "AI-Melee.exe"
 CREATE_NO_WINDOW = 0x08000000  # Windows: run play.py (and what it starts) without a console window
 sys.path.insert(0, str(HERE))
 
@@ -287,9 +289,38 @@ def _powershell(script):
     return [Path(ln) for ln in r.stdout.splitlines() if ln.strip()]
 
 
-def windows_install(python=sys.executable):
+def shortcut_target(python=sys.executable):
+    """(target, arguments, working folder, icon) for the Windows shortcut: AI-Melee.exe when
+    it's there, else the windowless Python running this file."""
+    if EXE.exists():
+        return EXE, "", BUNDLE, EXE
     launcher = Path(__file__).resolve()
-    return _powershell(windows_shortcut_script(windowless_python(python), f'"{launcher}"', launcher.parent, ICO))
+    return windowless_python(python), f'"{launcher}"', launcher.parent, ICO
+
+
+def windows_install(python=sys.executable):
+    return _powershell(windows_shortcut_script(*shortcut_target(python)))
+
+
+def old_top_level(bundle=BUNDLE):
+    """Game files a new zip extracted over an old folder left at the top: the names in
+    game/old-top-level.txt (where they used to be) that are still there. Only those."""
+    try:
+        names = (Path(bundle) / "game" / "old-top-level.txt").read_text(encoding="utf-8").split()
+    except OSError:
+        return []
+    keep = {"game", "ai-melee", "ai-melee.exe", "play ai-melee.bat", "readme-ai-melee.txt"}
+    return [Path(bundle) / n for n in names
+            if n.lower() not in keep and "/" not in n and "\\" not in n and n not in (".", "..")
+            and (Path(bundle) / n).exists()]
+
+
+def remove_paths(paths):
+    for p in paths:
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            p.unlink(missing_ok=True)
 
 
 def windows_uninstall():
@@ -448,6 +479,8 @@ class Launcher:
         self.log_shown = False
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.after(100, self.pump)
+        if WINDOWS:
+            root.after(300, self.offer_tidy_up)
 
     # ---- options ---------------------------------------------------------
 
@@ -456,6 +489,22 @@ class Launcher:
         state = "disabled" if self.gomi.get() else "!disabled"
         for button in self.brain_buttons:
             button.state([state])
+
+    def offer_tidy_up(self):
+        """Extracted over an old folder: the old melee.exe at the top starts the game without
+        the AI. Offer once to remove the old game files there (the game lives in game\\ now)."""
+        old = old_top_level()
+        if not old or self.settings.get("tidy_up_declined"):
+            return
+        names = ", ".join(p.name for p in old[:6]) + (" ..." if len(old) > 6 else "")
+        if self.messagebox.askyesno(
+                "AI-Melee", "The game now lives in the game folder, and the old game files are still at the "
+                f"top of the AI-Melee folder ({names}). Double-clicking that old melee.exe starts the game "
+                "without the AI.\n\nRemove the old game files from the top of the folder?", parent=self.root):
+            remove_paths(old)
+        else:
+            self.settings["tidy_up_declined"] = True
+            play.save_settings(self.settings)
 
     def add_shortcut(self):
         try:

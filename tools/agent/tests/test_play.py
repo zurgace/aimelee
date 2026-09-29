@@ -55,13 +55,15 @@ class PlayDiscoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp) / "AI-Melee"
             copy_tools(bundle / "ai-melee")
-            (bundle / "melee.exe").write_bytes(b"MZ")
+            (bundle / "game").mkdir()
+            (bundle / "game" / "melee.exe").write_bytes(b"MZ")
+            (bundle / "melee.exe").write_bytes(b"MZ")  # left over from an older zip: game\ wins
             make_phillip(bundle / "phillip-master")
             disc = Path(tmp) / "Melee.iso"
             disc.write_bytes(b"\0")
             (bundle / "ai-melee" / "settings.json").write_text(json.dumps({"disc": str(disc)}))
             got = self.probe(bundle / "ai-melee")
-            self.assertEqual(Path(got["melee"]), bundle / "melee.exe")
+            self.assertEqual(Path(got["melee"]), bundle / "game" / "melee.exe")
             self.assertEqual(Path(got["phillip"]), bundle / "phillip-master")
             self.assertEqual(Path(got["disc"]), disc)  # remembered from last time
 
