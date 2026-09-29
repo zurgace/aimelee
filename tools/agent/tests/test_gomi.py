@@ -138,6 +138,7 @@ class GomiTest(unittest.TestCase):
             slowest = max(g.tick()[1] for _ in range(200))
             self.assertLess(slowest, 0.01)
             b.end_match()
+            b.close()  # the reflection writes into the temporary folder
         finally:
             fake.close()
 
@@ -149,6 +150,7 @@ class GomiTest(unittest.TestCase):
             g.start()
             self.assertTrue(g.until(lambda: any("stopped answering" in ln for ln in self.logs)), self.logs)
             b.end_match()
+            b.close()
         finally:
             fake.close()
 
@@ -189,6 +191,15 @@ class GomiTest(unittest.TestCase):
         self.assertFalse(record["won"])
         self.assertEqual(record["stocks"], [3, 4])
         self.assertTrue(any('after the match: "I let you win' in ln for ln in self.logs))
+        # And a file for her Discord bot, written after the reflection.
+        posts = sorted((d / "outbox").iterdir())
+        self.assertEqual([p.suffix for p in posts], [".json"], "one file, no temp file left")
+        event = json.loads(posts[0].read_text())
+        self.assertEqual((event["opponent_character"], event["stage"], event["won"], event["stocks"]),
+                         ("Fox", "Final Destination", False, [3, 4]))
+        self.assertEqual(event["line"], "I let you win, mortal.")
+        self.assertEqual(event["lessons"], [f"lesson {i}" for i in range(8)])
+        self.assertEqual(event["record"], {"matches": 1, "wins": 0, "matches_vs": 1, "wins_vs": 0})
         # The next match's prompt carries both.
         b2 = self.brain("http://127.0.0.1:9/api/chat")
         b2.opponent = "Fox"
@@ -196,6 +207,16 @@ class GomiTest(unittest.TestCase):
         prompt = b2.match_prompt()
         self.assertIn("lesson 7", prompt)
         self.assertIn("fireball: ", prompt)
+
+    def test_outbox_keeps_the_newest(self):
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        b.opponent = "Fox"
+        record = {"stage": 0x1F, "won": True, "stocks": [2, 0], "percent": [40, 0]}
+        for _ in range(gomi_brain.OUTBOX_KEEP + 5):
+            b.post(record, "", [])
+        posts = list((Path(self.tmp.name) / "outbox").glob("*.json"))
+        self.assertEqual(len(posts), gomi_brain.OUTBOX_KEEP)
+        self.assertEqual(json.loads(posts[0].read_text())["stage"], "Battlefield")
 
     def test_scoreboard_steers_her_rules(self):
         b = self.brain("http://127.0.0.1:9/api/chat")

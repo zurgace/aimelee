@@ -191,6 +191,8 @@ If Ollama isn't running, Mario still plays, on her rule-based fallback. That fal
 
 Delete that folder to start her over. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server.
 
+**Posting to Discord.** After each match she also leaves the result in `tools/agent/gomi/outbox/`. Her [Discord bot](https://github.com/zurgace/gomihyu) can post it as @Gomihyu, in her own words: point the bot's `MELEE_OUTBOX` setting at that folder and set `MELEE_CHANNEL_ID` (see her README, "Melee results"). Only the newest 20 files are kept, so nothing piles up while the bot is off.
+
 ## Troubleshooting
 
 - **P2 doesn't move.** Wait for **AI ready** (`slippi: model ready` on Windows) before starting a match. If P2's character is one the AI doesn't play, the log says so.

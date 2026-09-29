@@ -17,6 +17,8 @@ Her files (per machine, not in git), in tools/agent/gomi/ or $GOMI_DIR:
   lessons.md        what she has learned, rewritten after each match
   scoreboard.json   per-plan totals, by opponent character
   matches.jsonl     one summary per match
+  outbox/           one file per match for her Discord bot to post about
+                    (gomihyu's MELEE_OUTBOX); the newest 20 are kept
 
 Settings: GOMI_OLLAMA_URL (default http://localhost:11434/api/chat),
 GOMI_MODEL (default gemma4:e4b), GOMI_PLAN_EVERY (seconds, default 0.5).
@@ -40,6 +42,9 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "gemma4:e4b"
 MAX_LESSONS = 8
+OUTBOX_KEEP = 20
+STAGE_NAMES = {0x1F: "Battlefield", 0x20: "Final Destination", 0x03: "Pokemon Stadium", 0x08: "Yoshi's Story",
+               0x1C: "Dream Land N64", 0x02: "Fountain of Dreams"}
 SAY_EVERY_S = 20.0
 FAILURES_BEFORE_RULES = 3
 
@@ -113,10 +118,14 @@ class Scoreboard:
         self.data.setdefault("wins", 0)
         self.data.setdefault("by_opponent", {})
         self.data.setdefault("all", {})
+        self.data.setdefault("records", {})  # opponent -> matches and wins
 
     def add(self, opponent, plans, won):
         self.data["matches"] += 1
         self.data["wins"] += bool(won)
+        rec = self.data["records"].setdefault(opponent, {"matches": 0, "wins": 0})
+        rec["matches"] += 1
+        rec["wins"] += bool(won)
         for table in (self.data["all"], self.data["by_opponent"].setdefault(opponent, {})):
             for plan, t in plans.items():
                 row = table.setdefault(plan, new_tally())
@@ -270,8 +279,37 @@ class GomiBrain:
         best = f"; best plan so far {ranked[-1]}, worst {ranked[0]}" if len(ranked) > 1 else ""
         self.log(f"match over: {'won' if won else 'lost'} {my_stocks}-{their_stocks} stocks vs "
                  f"{self.opponent}{best}")
-        self.reflecting = threading.Thread(target=self.reflect, args=(record,), daemon=True)
+        if ranked:
+            record["best_plan"], record["worst_plan"] = ranked[-1], ranked[0]
+        self.reflecting = threading.Thread(target=self.after_match, args=(record,), daemon=True)
         self.reflecting.start()
+
+    def after_match(self, record):
+        line, lessons = self.reflect(record)
+        self.post(record, line, lessons)
+
+    def post(self, record, line, lessons):
+        """The match for her Discord bot (gomihyu's MELEE_OUTBOX): one JSON file
+        per match, written whole (temp file, then rename); the oldest go past
+        OUTBOX_KEEP, in case the bot isn't running to take them."""
+        outbox = self.dir / "outbox"
+        outbox.mkdir(parents=True, exist_ok=True)
+        board = self.scoreboard.data
+        vs = board["records"].get(self.opponent, {})
+        event = {"version": 1, "time": time.time(), "character": "Mario",
+                 "opponent_character": self.opponent,
+                 "stage": STAGE_NAMES.get(record["stage"], f"stage {record['stage']}"),
+                 "won": record["won"], "stocks": record["stocks"], "percent": record["percent"],
+                 "line": line, "lessons": lessons,
+                 "best_plan": record.get("best_plan"), "worst_plan": record.get("worst_plan"),
+                 "record": {"matches": board["matches"], "wins": board["wins"],
+                            "matches_vs": vs.get("matches", 0), "wins_vs": vs.get("wins", 0)}}
+        name = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1000000:06d}.json"
+        tmp = outbox / (name + ".tmp")
+        tmp.write_text(json.dumps(event, indent=1))
+        tmp.replace(outbox / name)
+        for old in sorted(outbox.glob("*.json"))[:-OUTBOX_KEEP]:
+            old.unlink(missing_ok=True)
 
     def close(self, timeout=120.0):
         """Let the reflection on the last match finish."""
@@ -365,6 +403,7 @@ class GomiBrain:
     # ---- after the match -------------------------------------------------
 
     def reflect(self, record):
+        """Her new lessons from the match, and her line about it: (line, lessons)."""
         lessons = read_lessons(self.dir / "lessons.md")
         rows = "\n".join(f"- {p}: {t['frames'] / 60:.0f}s, dealt {t['dealt']}%, took {t['taken']}%, "
                          f"KOs {t['kos']}, lost {t['deaths']} stocks" for p, t in record["plans"].items())
@@ -386,12 +425,12 @@ class GomiBrain:
             self.llm_down = self.llm.check()
         if self.llm_down:
             self.log("no reflection this time (Ollama isn't answering); the scoreboard still counts the match")
-            return
+            return "", lessons
         try:
             ans = self.llm.chat(system, user, REFLECT_SCHEMA, num_predict=500, temperature=0.7, timeout=120.0)
         except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as e:
             self.log(f"couldn't reflect on the match ({e}); her lessons stay as they were")
-            return
+            return "", lessons
         new = [str(ln).strip() for ln in ans.get("lessons", []) if str(ln).strip()][:MAX_LESSONS]
         if new:
             write_lessons(self.dir / "lessons.md", new)
@@ -399,6 +438,7 @@ class GomiBrain:
         if line:
             self.log(f'after the match: "{line[:200]}"')
         self.log(f"{len(new)} lessons in {self.dir / 'lessons.md'}")
+        return line, new or lessons
 
 
 def plays(ckind):
