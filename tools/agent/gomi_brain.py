@@ -14,11 +14,16 @@ tallied across matches (per opponent), and her prompt shows that
 scoreboard; without Ollama a rule-based chooser picks plans weighted by it,
 so she keeps improving on the numbers alone.
 
+She also reads the human (gomi_reads.py): their habits, which the move
+library then punishes, and their techniques, which she copies once she has
+seen them twice -- mid-match, announcing it in Discord.
+
 Her files (per machine, not in git), in tools/agent/gomi/ or $GOMI_DIR, one
 folder per character she plays (mario/, fox/):
   lessons.md        what she has learned, rewritten after each match
   scoreboard.json   per-plan totals, by opponent character
   matches.jsonl     one summary per match
+and rival.json, what she has noticed about the human (for both characters).
 
 Her Discord bot (gomihyu) posts what she says: a file per match and per
 in-match taunt, in the outbox both programs know,
@@ -42,6 +47,7 @@ from pathlib import Path
 import bridge
 import fox_moves
 import gomi_handbook
+import gomi_reads
 import mario_moves
 import roster
 
@@ -216,6 +222,8 @@ class GomiBrain:
         self.rng = random.Random(seed)
         self.seed = seed
         self.migrate()
+        self.rival = gomi_reads.Rival(self.dir / "rival.json")
+        self.reader = None
         self.use(mario_moves)
         self.priors = {}
         self.lock = threading.Lock()
@@ -238,7 +246,8 @@ class GomiBrain:
     def use(self, moves):
         """Play this character (a move library), with its own lessons and scoreboard."""
         self.moves = moves
-        self.player = moves.Player(self.seed)
+        self.player = moves.Player(self.seed, skills=self.rival.skills(moves))
+        self.player.reads = self.rival.reads()
         self.char_dir = self.dir / moves.NAME.lower()
         self.scoreboard = Scoreboard(self.char_dir / "scoreboard.json")
 
@@ -251,6 +260,7 @@ class GomiBrain:
         self.opponent = roster.display(opp.ckind)
         self.stage = st.stage
         self.player.reset()
+        self.reader = gomi_reads.Reader(self.rival) if opp.slot_type == 0 else None  # humans only
         self.plan = "space"
         self.plan_since = time.monotonic()
         self.tally = {p: new_tally() for p in self.moves.PLANS}
@@ -285,12 +295,27 @@ class GomiBrain:
         if not new_frame:
             return self.pad
         self.last_frame = st.scene_frame
+        if self.reader is not None:
+            self.read_them(opp, me, s.dist)
         with self.lock:
             plan = self.plan
         self.count(plan, me, opp)
         self.pad = self.player.step(s, plan)
         self.snapshot = (s, me.stocks, opp.stocks, plan)
         return self.pad
+
+    def read_them(self, opp, me, dist):
+        """Watch the human this frame; copy what she has now seen enough of."""
+        learned = self.reader.watch(opp, me, dist)
+        if self.reader.t % 60 == 0:
+            self.player.reads = self.rival.reads()
+        for tech in learned:
+            self.player.skills = self.rival.skills(self.moves)
+            if tech not in self.player.skills:
+                continue  # multishine, when she's Mario
+            self.log(f"she copies you: {mario_moves.TECHS[tech]}")
+            self.said_at = time.monotonic()
+            self.taunt(gomi_reads.COPY_LINES[tech])
 
     def count(self, plan, me, opp):
         t = self.tally[plan]
@@ -322,9 +347,11 @@ class GomiBrain:
         plans = {p: t for p, t in self.tally.items() if t["frames"]}
         self.scoreboard.add(self.opponent, plans, won)
         self.scoreboard.save()
+        self.rival.save()
+        learned = self.reader.learned if self.reader is not None else []
         record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "opponent": self.opponent, "stage": self.stage,
                   "won": won, "stocks": [my_stocks, their_stocks], "percent": [my_pct, their_pct],
-                  "plans": plans, "recovery_deaths": self.recover_deaths}
+                  "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned}
         self.char_dir.mkdir(parents=True, exist_ok=True)
         with open(self.char_dir / "matches.jsonl", "a") as f:
             f.write(json.dumps(record) + "\n")
@@ -389,6 +416,7 @@ class GomiBrain:
         plans = "\n".join(f"- {p}: {d}" for p, d in self.moves.PLANS.items())
         lessons = "\n".join(f"- {ln}" for ln in self.lessons) or "- (none yet: this is your first match)"
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (no numbers yet)"
+        rival = "\n".join(f"- {ln}" for ln in self.rival.lines()) or "- (nothing yet)"
         return (f"{persona(self.moves.NAME)}\n\nYou're facing {self.opponent}. Twice a second you're told "
                 f"the situation and choose {self.moves.NAME}'s game plan:\n{plans}\n"
                 "Recovering, teching and getting up happen by themselves.\n\n"
@@ -396,6 +424,8 @@ class GomiBrain:
                 f"{gomi_handbook.lines(self.moves.NAME, self.opponent)}\n\n"
                 f"Your lessons from earlier matches:\n{lessons}\n\n"
                 f"What each plan has done against {self.opponent} so far:\n{board}\n\n"
+                "What you've noticed about this human (your moves already punish their habits):\n"
+                f"{rival}\n\n"
                 'Answer in JSON: {"plan": one of the plans, "say": a short in-character taunt, or "" '
                 "most of the time}.")
 
@@ -482,10 +512,13 @@ class GomiBrain:
                          f"KOs {t['kos']}, lost {t['deaths']} stocks" for p, t in record["plans"].items())
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (none)"
         old = "\n".join(f"- {ln}" for ln in lessons) or "- (none yet)"
+        copied = f"You copied from them this match: {', '.join(record['learned'])}.\n" if record.get("learned") else ""
+        noticed = "; ".join(self.rival.lines()) or "nothing yet"
         user = (f"The match against {self.opponent} is over. You {'WON' if record['won'] else 'LOST'}: "
                 f"your stocks {record['stocks'][0]}, theirs {record['stocks'][1]}; "
                 f"percent {record['percent'][0]}% vs {record['percent'][1]}%. "
-                f"Stocks lost while recovering: {record['recovery_deaths']}.\n"
+                f"Stocks lost while recovering: {record['recovery_deaths']}.\n{copied}"
+                f"What you've noticed about them: {noticed}.\n"
                 f"Your plans this match:\n{rows or '- (none)'}\n\n"
                 f"All your matches against {self.opponent} (per plan):\n{board}\n\n"
                 f"Your lessons so far:\n{old}\n\n"

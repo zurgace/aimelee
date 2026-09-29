@@ -168,6 +168,9 @@ The launcher remembers your choices. While you play, it shows **AI ready**, and 
 [Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she is P2's AI, as **Mario** or **Fox**. slippi-ai and the 2017 agents stay off (they aren't even loaded), and P2's door opens with Mario or Fox.
 - **Before her first match** she already knows the basics: a handbook (`tools/agent/gomi_handbook.py`) of what every Mario or Fox player learns first, and a note on each opponent. Her prompt always shows it, and it gives her rule-based fallback a starting guess for each plan. Her own numbers replace that guess as she plays.
 - **During a match:** twice a second she picks her character's game plan: approach, zoning (Mario's fireballs, Fox's lasers), spacing, pressure, defending, edgeguarding, or playing from the platforms. A move library plays that plan frame by frame; she's far too slow to press the buttons herself. Fox shines up close. Recovering (Mario's Up-B; Fox's Illusion or a Firefox aimed at the ledge), teching and getting up happen without her.
+- **She reads you** (human players only), and remembers across matches and both her characters:
+  - **She copies your tech.** She starts without wavedashing, wavelanding, L-cancelling, SHFFLs, shield drops and multishines (as Fox). The second time she sees you do one, she starts doing it too, mid-match, and says so in Discord. The more you do it, the more she does.
+  - **She punishes your habits:** which way you tech, how you get up, your favourite ledge option, and whether you shield or jump when she comes in. After a few sightings she waits where your roll ends, traps your ledge option, and grabs you if you shield a lot. She reacts to tech rolls and getups she sees, too.
 - **After each match:** she reads how it went, what each plan dealt and took, and how she lost her stocks. Then she rewrites her lessons for the next match.
 - **Across matches:** every plan's results are tallied per opponent, and she sees that scoreboard too. So she changes her game from match to match, but don't expect a pro: she stays a quirky, beatable one.
 
@@ -189,7 +192,9 @@ If Ollama isn't running, she still plays, on her rule-based fallback. That fallb
 - `scoreboard.json` has every plan's results;
 - `matches.jsonl` has one line per match.
 
-Delete that folder to start her over. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server.
+`tools/agent/gomi/rival.json` holds what she has noticed about you: your techniques and habits.
+
+Delete `tools/agent/gomi/` to start her over; delete only `rival.json` to make her forget you. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server.
 
 **Posting to Discord.** Her [Discord bot](https://github.com/zurgace/gomihyu) posts her taunts live (at most one every 30 seconds) and a post about every match, as @Gomihyu, in her own words. Both programs find each other on their own: AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, where her bot looks. To pick the channel, say **"gomi post melee here"** in it (as the bot's owner). If her posts pile up unposted, the launcher says so. See her README, "Melee results".
 

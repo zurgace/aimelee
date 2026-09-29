@@ -83,6 +83,11 @@ AERIAL_LANDINGS = range(0x46, 0x4B)
 SHIELDING = (0xB2, 0xB3, 0xB5)          # GuardOn, Guard, GuardSetOff
 AIRDODGE = 0xEC
 PLATFORM_DROP = 0xF4
+TECHS_NOW = {0xC7: 18, 0xC8: 30, 0xC9: 30}      # teching: in place, forward, backward -> frame to grab at
+GETTING_UP = {0xBA: 22, 0xC2: 22, 0xBC: 26, 0xC4: 26, 0xBD: 26, 0xC5: 26}  # stand / roll up from lying
+LYING = (0xB7, 0xB8, 0xBF, 0xC0)                 # missed tech, lying there
+LEDGE_ROLLS = (0x102, 0x103)
+ROLL = 30                                        # about how far a tech or getup roll goes
 
 
 def pad(buttons=0, sx=0, sy=0, cx=0, cy=0, r=0):
@@ -121,6 +126,8 @@ class Situation:
     opp_percent: int
     platforms: tuple = ()
     frame: float = 0.0
+    opp_facing: int = 1
+    opp_frame: float = 0.0
 
     @property
     def dx(self):
@@ -202,7 +209,8 @@ def situation(me, opp, stage):
         hitstun=bool(me.flags & bridge.FT_IN_HITSTUN) or me.motion_id in DAMAGE,
         hitlag=bool(me.flags & bridge.FT_IN_HITLAG),
         jumps_left=max(0, me.max_jumps - me.jumps_used), shield=me.shield, vy=me.self_vy,
-        percent=me.percent, opp_percent=opp.percent, platforms=PLATFORMS.get(stage, ()), frame=me.action_frame)
+        percent=me.percent, opp_percent=opp.percent, platforms=PLATFORMS.get(stage, ()), frame=me.action_frame,
+        opp_facing=1 if opp.facing >= 0 else -1, opp_frame=opp.action_frame)
 
 
 class Mario:
@@ -215,6 +223,7 @@ class Mario:
         self.queue = deque()
         self.combo = None       # a technique in progress: a generator sent each frame's Situation
         self.skills = dict(skills or {})  # TECHS name -> how often she uses it (0..1)
+        self.reads = {}   # gomi_reads: habit -> (the human's usual option, its share)
         self.reset()
 
     def reset(self):
@@ -239,6 +248,11 @@ class Mario:
         """She has seen it and feels like using it this time."""
         rate = self.skills.get(tech, 0.0)
         return rate > 0 and self.rng.random() < rate
+
+    def read(self, habit):
+        """The human's usual option for `habit` (gomi_reads), or None."""
+        got = self.reads.get(habit)
+        return got[0] if got else None
 
     def start(self, combo):
         """Run a technique frame by frame: its first pad now, the rest as it reacts."""
@@ -444,9 +458,87 @@ class Mario:
     def do_plan(self, s, plan):
         if s.air:
             return self.air(s, plan)
+        if plan != "defend":
+            chase = self.tech_chase(s)
+            if chase is not None:
+                return chase
         if plan == "edgeguard" and not s.opp_offstage:
             plan = "space"
         return getattr(self, "plan_" + plan, self.plan_space)(s)
+
+    # ---- punishing what the human does (reads from gomi_reads) --------------
+
+    def chase_target(self, s):
+        """Where they'll end up (x) and the frame of it to grab at; None when there's nothing to chase."""
+        away_from_her = -(sign(s.x - s.opp_x) or s.facing)
+
+        def rolling(direction, grab_at):
+            left = ROLL * max(0.0, 1 - s.opp_frame / (grab_at + 8))   # of the roll still to go
+            return s.opp_x + direction * left, grab_at
+
+        if s.opp_motion in TECHS_NOW:
+            rolls = {0xC7: 0, 0xC8: s.opp_facing, 0xC9: -s.opp_facing}[s.opp_motion]
+            return rolling(rolls, TECHS_NOW[s.opp_motion])
+        if s.opp_motion in GETTING_UP:
+            rolls = {0xBA: 0, 0xC2: 0, 0xBC: s.opp_facing, 0xC4: s.opp_facing}.get(s.opp_motion, -s.opp_facing)
+            return rolling(rolls, GETTING_UP[s.opp_motion])
+        if s.opp_motion in LEDGE_ROLLS:
+            return sign(s.opp_x) * (s.edge - 38), 32
+        if s.opp_motion in LYING:
+            guess = self.read("getup")
+            rolls = {"toward": -away_from_her, "away": away_from_her}.get(guess, 0)
+            return s.opp_x + rolls * ROLL, None
+        falling = s.opp_motion == TUMBLING or s.opp_motion in DAMAGE
+        if falling and s.opp_air and s.opp_y < 15 and not s.opp_offstage and self.read("tech"):
+            rolls = {"toward": -away_from_her, "away": away_from_her}.get(self.read("tech"), 0)
+            return s.opp_x + rolls * ROLL, None       # about to land: be where they usually tech
+        return None
+
+    def tech_chase(self, s):
+        """Be where they'll end up, and grab them as they get there."""
+        if s.dist > 70:
+            return None
+        got = self.chase_target(s)
+        if got is None:
+            return None
+        target, grab_at = got
+        target = max(-s.edge + 5, min(s.edge - 5, target))
+        if abs(target - s.x) > 10:
+            self.mode = "chase"
+            return self.dash(sign(target - s.x), 2)
+        turn = self.turn(s)
+        if turn:
+            return turn
+        self.mode = "chase"
+        if s.opp_motion in LYING and s.dist < 14:
+            return self.hit(pad(A, sy=-45), 14)        # down-tilt them where they lie
+        if grab_at is not None and s.opp_frame >= grab_at and s.dist < 14:
+            return self.hit(pad(Z), 25)                # grab as the roll or getup ends
+        return NEUTRAL
+
+    def ledge_trap(self, s):
+        """They're on the ledge: wait where their usual option ends. None: nothing to do."""
+        if s.opp_motion not in LEDGE:
+            return None
+        guess = self.read("ledge")
+        spot = {"stand": 28, "attack": 28, "roll": 45, "jump": 18}.get(guess)
+        if spot is None:
+            return None                               # drops (or nothing known): the usual edgeguard
+        side = sign(s.opp_x) or s.facing
+        target = side * (s.edge - spot)
+        if abs(target - s.x) > 6:
+            return self.dash(sign(target - s.x), 2)
+        if s.facing != side:
+            self.run(NEUTRAL)
+            return pad(sx=side * 35)
+        return NEUTRAL
+
+    def jumped_at(self, s):
+        """They jumped right over her: an up-smash."""
+        if s.opp_air and 8 < s.dy < 35 and s.dist < 14 and not self.cooldown and self.read("ledge") == "jump":
+            self.cooldown = 30
+            return self.hit(pad(cy=80), 30)
+        return None
 
     def turn(self, s):
         """None when facing the opponent; else this frame's turn-around input."""
@@ -493,7 +585,12 @@ class Mario:
             return turn
         if self.knows("shffl"):
             return self.start(self.shffl(pad(cx=s.facing * 80)))   # SHFFL'd forward-air
+        habit = self.read("defense")
+        if habit == "jump" and self.rng.random() < 0.6:
+            return self.hit(pad(A, sy=50), 18)           # they jump when you come in: up-tilt
         pick = self.rng.random()
+        if habit == "shield":
+            pick *= 0.4                                  # they shield: grab them
         if pick < 0.35:
             return self.hit(pad(Z), 25)                  # grab
         if pick < 0.65:
@@ -559,6 +656,9 @@ class Mario:
         return shield[0]
 
     def plan_edgeguard(self, s):
+        trap = self.ledge_trap(s) or self.jumped_at(s)
+        if trap is not None:
+            return trap
         side = sign(s.opp_x) or s.facing
         target = side * (s.edge - 6)
         if abs(s.x - target) > 8:

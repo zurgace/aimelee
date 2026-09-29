@@ -80,7 +80,12 @@ class Fox(base.Mario):
         if self.knows("shffl"):
             aerial = pad(A) if self.rng.random() < 0.5 else pad(cy=-80)
             return self.start(self.shffl(aerial, drift=s.toward * 40))   # SHFFL'd nair or down-air
+        habit = self.read("defense")
+        if habit == "jump" and self.rng.random() < 0.6:
+            return self.hit(pad(cy=80), 30)              # they jump when you come in: up-smash
         pick = self.rng.random()
+        if habit == "shield":
+            pick *= 0.3                                  # they shield: grab them
         if pick < 0.3:
             return self.hit(pad(Z), 25)                  # grab
         if pick < 0.55:
@@ -150,6 +155,9 @@ class Fox(base.Mario):
         return shield[0]
 
     def plan_edgeguard(self, s):
+        trap = self.ledge_trap(s) or self.jumped_at(s)
+        if trap is not None:
+            return trap
         side = sign(s.opp_x) or s.facing
         target = side * (s.edge - 6)
         if abs(s.x - target) > 8:

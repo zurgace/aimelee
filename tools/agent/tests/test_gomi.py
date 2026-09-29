@@ -334,6 +334,46 @@ class GomiTest(unittest.TestCase):
                                                           "deaths": 3}}, won=False)
         self.assertLess(b.scoreboard.score("edgeguard", "Captain Falcon", 40.0), 0, "ten minutes of numbers win")
 
+    def test_she_copies_a_human_mid_match(self):
+        import gomi_reads
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        g = Game(b)
+        g.start()
+        self.assertEqual(b.player.skills, {})
+        dash = [mm.KNEE_BEND] * 3 + [mm.JUMPING[0], mm.AIRDODGE] + [mm.LANDING_SPECIAL] * 5 + [0x0E]
+        for _ in range(2):
+            for motion in dash:
+                g.opp = fighter(x=40, ckind=FOX, motion=motion, air=motion in (0x19, 0xEC))
+                g.tick()
+        self.assertIn("wavedash", b.player.skills, "copied mid-match")
+        posts = [json.loads(p.read_text()) for p in (Path(self.tmp.name) / "outbox").glob("*.json")]
+        self.assertIn(gomi_reads.COPY_LINES["wavedash"], [p.get("text") for p in posts])
+        self.assertTrue(any("she copies you" in ln for ln in self.logs))
+        b.end_match()
+        b.close()
+        rival = json.loads((Path(self.tmp.name) / "rival.json").read_text())
+        self.assertEqual(rival["techs"], {"wavedash": 2})
+        record = json.loads((Path(self.tmp.name) / "mario" / "matches.jsonl").read_text())
+        self.assertEqual(record["learned"], ["wavedash"])
+        # Her next match, as Fox: she still knows it, and her prompt says so.
+        g = Game(b)
+        g.me = fighter(x=-20, ckind=FOX)
+        g.start()
+        b.close()
+        b.stop_match.set()
+        self.assertIn("wavedash", b.player.skills)
+        self.assertIn("techniques you copied from them: wavedash", b.system)
+
+    def test_cpus_teach_her_nothing(self):
+        import dataclasses
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        g = Game(b)
+        g.opp = dataclasses.replace(fighter(x=40, ckind=FOX), slot_type=1)
+        g.start()
+        b.close()
+        b.stop_match.set()
+        self.assertIsNone(b.reader)
+
 
 if __name__ == "__main__":
     unittest.main()
