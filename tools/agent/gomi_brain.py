@@ -319,7 +319,8 @@ class GomiBrain:
                 option_priors[option] = option_priors.get(option, 0.0) + bias
             self.log(f'practising this match: "{self.drill["goal"]}" ({self.drill["drill"]}: {info["does"]})')
         self.options = gomi_options.Bandit(self.char_dir / "options.json", self.opponent,
-                                           random.Random(self.seed), option_priors)
+                                           random.Random(self.seed), option_priors,
+                                           head_start=self.rival.options())  # what works for the human
         self.player.chooser = self.options.choose
         self.system = self.match_prompt()
         self.active = True
@@ -356,7 +357,7 @@ class GomiBrain:
             return self.pad
         self.last_frame = st.scene_frame
         if self.reader is not None:
-            self.read_them(opp, me, s.dist)
+            self.read_them(opp, me, s.dist, s.edge)
         with self.lock:
             plan = self.plan
         self.count(plan, me, opp)
@@ -366,9 +367,9 @@ class GomiBrain:
         self.snapshot = (s, me.stocks, opp.stocks, plan)
         return self.pad
 
-    def read_them(self, opp, me, dist):
+    def read_them(self, opp, me, dist, edge):
         """Watch the human this frame; copy what she has now seen enough of."""
-        learned = self.reader.watch(opp, me, dist)
+        learned = self.reader.watch(opp, me, dist, edge)
         if self.reader.t % 60 == 0:
             self.player.reads = self.rival.reads()
         for tech in learned:

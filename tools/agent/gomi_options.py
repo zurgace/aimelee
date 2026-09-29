@@ -61,7 +61,9 @@ class Bandit:
         self.opponent = opponent
         self.rng = rng
         self.priors = dict(priors or {})          # option -> starting guess
-        self.head_start = head_start or {}        # bucket key -> option -> [n, total, squares] (the human's)
+        # bucket key -> option -> [n, total, squares]: the human's, kept live (not copied) so what
+        # they do this match counts at once
+        self.head_start = head_start if head_start is not None else {}
         try:
             self.data = json.loads(self.path.read_text())
         except (OSError, ValueError):
@@ -98,11 +100,21 @@ class Bandit:
         human = self.head_start.get(k, {}).get(option)
         return not (own and own[0]) and not (human and human[0]) and not self.started[(k, option)]
 
+    def copyable(self, k, option):
+        """It has paid for the human here, and she hasn't tried it here herself yet."""
+        human = self.head_start.get(k, {}).get(option)
+        own = self.mine.get(k, {}).get(option)
+        return bool(human and human[0] and mean_of(human) > 0 and not (own and own[0])
+                    and not self.started[(k, option)])
+
     def choose(self, bucket, menu):
         """Pick an option from `menu` for `bucket` (range, them, spot), and start scoring it."""
         k = key(bucket)
+        copy = [o for o in menu if self.copyable(k, o)]
         fresh = [o for o in menu if self.untried(k, o)]
-        if fresh:
+        if copy:                                  # what has paid for the human, first
+            pick = max(copy, key=lambda o: mean_of(self.head_start[k][o]))
+        elif fresh:
             pick = self.rng.choice(fresh)         # experiment: never tried here yet
         else:
             draws = []

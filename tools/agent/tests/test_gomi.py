@@ -489,6 +489,7 @@ class GomiTest(unittest.TestCase):
         g.start()
         b.stop_match.set()
         self.assertEqual(b.options.priors.get("grab"), 4.0)
+        self.assertIs(b.options.head_start, b.rival.options(), "what works for the human, live")
 
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")

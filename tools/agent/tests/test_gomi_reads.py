@@ -2,6 +2,7 @@
 frames, and the move library punishing what it has read."""
 
 import dataclasses
+import random
 import sys
 import tempfile
 import unittest
@@ -113,6 +114,59 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(set(skills), {"wavedash", "l_cancel"})
         self.assertLess(skills["wavedash"], skills["l_cancel"])
         self.assertLessEqual(skills["l_cancel"], 0.8)
+
+
+class ImitationTest(unittest.TestCase):
+    """What they do when free to act, and what it trades for them: her head start."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.rival = gr.Rival(Path(self.tmp.name) / "rival.json")
+        self.reader = gr.Reader(self.rival)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def frame(self, opp, me=None, dist=10):
+        self.reader.watch(opp, me or fighter(x=10), dist)
+
+    def test_their_grab_and_what_it_traded(self):
+        self.frame(them())
+        self.frame(them(0xD4))                           # they grab, close, she's standing
+        me = fighter(x=10)
+        me.percent = 10
+        for _ in range(20):
+            self.frame(them(0xD5), fighter(x=10))
+        for _ in range(gr.gomi_options.WINDOW):
+            self.frame(them(), me)                        # she took 10 from it
+        self.assertEqual(self.rival.options()["close/grounded/center"]["grab"], [1, 10, 100])
+
+    def test_hops_rolls_and_shines(self):
+        hop = [them(), them(mm.KNEE_BEND), them(mm.JUMPING[0], air=True, y=5)]
+        self.feed(hop + [them(0x41, air=True, y=12)])                     # short hop nair
+        self.feed(hop + [them(FALL, air=True, y=30)] * 3 + [them(0x42, air=True, y=34)])   # full hop fair
+        self.feed([them(), them(0xEA, x=0.0, facing=1.0)])                # rolls back, away from her at 10
+        self.feed([them(), them(0xE9, x=0.0, facing=1.0)])                # rolls toward her: not a retreat
+        self.feed([them(ckind=FOX), them(gr.SHINE_START, ckind=FOX)])
+        for _ in range(gr.gomi_options.WINDOW):
+            self.frame(them())
+        got = {o for rows in self.rival.options().values() for o in rows}
+        self.assertEqual(got, {"sh_aerial", "fullhop_aerial", "retreat", "shine"})
+
+    def feed(self, frames):
+        for f in frames:
+            self.frame(f)
+
+    def test_what_works_for_them_goes_first(self):
+        self.rival.data["options"] = {"close/grounded/center": {"dtilt": [4, 60.0, 900.0], "jab": [3, -9.0, 30.0]}}
+        b = gr.gomi_options.Bandit(Path(self.tmp.name) / "o.json", "Marth", random.Random(1),
+                                   head_start=self.rival.options())
+        menu = ["grab", "dtilt", "jab", "smash"]
+        self.assertEqual(b.choose(("close", "grounded", "center"), menu), "dtilt", "their best, first")
+        self.assertNotIn("jab", [b.choose(("close", "grounded", "center"), menu) for _ in range(2)],
+                         "then the untried ones: what failed them waits")
+        self.assertIn("what works for them: close, you're on the ground: down-tilt (+15 a try, 4 times)",
+                      self.rival.lines())
 
 
 class PunishTest(unittest.TestCase):

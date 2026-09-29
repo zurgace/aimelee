@@ -11,6 +11,12 @@ opponent's action states and controller and counts:
   SHFFL, a shield drop, a multishine. She starts without them; after seeing
   one twice she starts doing it too, mid-match, and the more she sees it, the
   more she uses it.
+- options: what they do when they're free to act -- grab, down-tilt, jab,
+  dash attack, smash, short-hop or full-hop aerial, shield, roll away, shine
+  -- in the same situations her own options are scored in (gomi_options),
+  and what each traded for them over the next 90 frames. Her own choosing
+  starts from that: what works for them, she tries first (imitation, the
+  first half of slippi-ai's recipe).
 
 It all lives in <gomi>/rival.json, shared by her characters: it's about the
 human, not about her.
@@ -22,6 +28,7 @@ from collections import deque
 from pathlib import Path
 
 import bridge
+import gomi_options
 import mario_moves as mm
 
 UNLOCK_AT = 2          # sightings before she copies a technique
@@ -48,6 +55,12 @@ COPY_LINES = {
     "shield_drop": "Dropping through platforms out of shield? Mine now.",
     "multishine": "That shine-shine-shine thing? I'll do it right back in your face.",
 }
+
+# Their action state as it starts -> the option of hers it matches.
+OPTION_STARTS = {0xD4: "grab", 0xD6: "grab", 0x39: "dtilt", 0x2C: "jab", 0x32: "dash_attack", 0xB2: "shield",
+                 **{m: "smash" for m in range(0x3A, 0x41)}}
+ROLLS = (0xE9, 0xEA)
+SH_HEIGHT = 22         # an aerial started below this after a jump: a short hop
 
 HABIT_NAMES = {"tech": "when they tech", "getup": "when they miss a tech and get up",
                "ledge": "from the ledge", "defense": "when you're close"}
@@ -105,11 +118,44 @@ class Rival:
         copied = [t for t, n in self.data["techs"].items() if n >= UNLOCK_AT]
         if copied:
             out.append("techniques you copied from them: " + ", ".join(copied))
+        works = self.what_works()
+        if works:
+            out.append("what works for them: " + "; ".join(works))
         return out
+
+    def saw_option(self, bucket_key, option, score):
+        row = self.data.setdefault("options", {}).setdefault(bucket_key, {}).setdefault(option, [0, 0.0, 0.0])
+        row[0] += 1
+        row[1] += score
+        row[2] += score * score
+
+    def options(self):
+        """{bucket key: {option: [tries, total, squares]}}: their results, her head start."""
+        return self.data.setdefault("options", {})
+
+    def what_works(self, top=3):
+        best = []
+        for k, rows in self.options().items():
+            for o, r in rows.items():
+                if r[0] >= 3 and r[1] > 0:
+                    best.append((r[1] / r[0], k, o, r[0]))
+        best.sort(reverse=True)
+        return [f"{their_situation(k)}: {gomi_options.NAMES.get(o, o)} ({m:+.0f} a try, {n} times)"
+                for m, k, o, n in best[:top]]
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.data, indent=1))
+
+
+YOU = {"grounded": "you're on the ground", "air": "you're in the air", "shield": "you're shielding",
+       "busy": "you're stuck in a move or roll"}
+
+
+def their_situation(k):
+    """A bucket key seen from the human's side, told to her: 'close, you're on the ground'."""
+    rng, her, spot = k.split("/")
+    return f"{rng}, {YOU.get(her, her)}" + (", them by the ledge" if spot == "edge" else "")
 
 
 def toward(fighter, forward, me_x):
@@ -133,8 +179,11 @@ class Reader:
         self.fast_fell = False
         self.shine_at = -99
         self.learned = []          # techniques unlocked this match
+        self.trials = []           # their open options: [bucket key, option, frames, score]
+        self.swung = False         # an aerial already counted this airtime
+        self.prev_me = None        # her previous Fighter (their damage dealt is hers taken)
 
-    def watch(self, opp, me, dist):
+    def watch(self, opp, me, dist, edge=70.0):
         """One frame; returns the techniques this frame unlocked."""
         self.t += 1
         self.inputs.append(opp.input)
@@ -167,9 +216,56 @@ class Reader:
             self.shine_at = self.t
 
         self.habits(prev, opp, me, dist)
+        self.options(prev, opp, me, dist, edge)
         learned = [tech for tech in seen if self.rival.saw_tech(tech)]
         self.learned += learned
         return learned
+
+    def options(self, prev, opp, me, dist, edge):
+        """Score their open options this frame; start one if they just began something."""
+        if self.prev_me is not None:
+            pme = self.prev_me
+            died, ko = opp.stocks < prev.stocks, me.stocks < pme.stocks
+            dealt = me.percent - pme.percent if not ko and me.percent > pme.percent else 0
+            taken = opp.percent - prev.percent if not died and opp.percent > prev.percent else 0
+            score = dealt - taken + gomi_options.STOCK * (int(ko) - int(died))
+            still = []
+            for trial in self.trials:
+                trial[2] += 1
+                trial[3] += score
+                if trial[2] >= gomi_options.WINDOW:
+                    self.rival.saw_option(trial[0], trial[1], trial[3])
+                else:
+                    still.append(trial)
+            self.trials = still
+        self.prev_me = me
+        if not opp.in_air:
+            self.swung = False
+        was, now = prev.motion_id, opp.motion_id
+        if now == was:
+            return
+        option = OPTION_STARTS.get(now) if not opp.in_air else None
+        if now in ROLLS and not opp.in_air:
+            option = "retreat" if toward(opp, now == 0xE9, me.pos_x) == "away" else None
+        if now == SHINE_START and opp.ckind in SHINERS:
+            option = "shine"
+        if now in mm.AERIALS and opp.in_air and not self.swung and self.t - self.takeoff_at <= 20:
+            self.swung = True
+            option = "sh_aerial" if opp.pos_y < SH_HEIGHT else "fullhop_aerial"
+        if option is None:
+            return
+        rng = "close" if dist < 20 else "mid" if dist < 45 else "far"
+        if me.motion_id in mm.SHIELDING:
+            her = "shield"
+        elif me.motion_id in mm.BUSY:
+            her = "busy"
+        elif me.in_air:
+            her = "air"
+        else:
+            her = "grounded"
+        toward_her = 1 if me.pos_x > opp.pos_x else -1
+        spot = "edge" if (1 if opp.pos_x > 0 else -1) == -toward_her and abs(opp.pos_x) > edge - 25 else "center"
+        self.trials.append([gomi_options.key((rng, her, spot)), option, 0, 0.0])
 
     def l_cancelled(self):
         """A fresh trigger press (L, R, Z or an analog press) in the last 7 frames."""
