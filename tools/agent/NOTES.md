@@ -288,3 +288,24 @@ each game", the options were weighed as follows:
   fake Ollama, and both runners' loops against the fake games. Timings
   (hitlag, jumpsquat, move lengths, ledge behaviour) are expected to need a
   tuning round from real play.
+
+### Mario and Fox, and Gomi taking over (2026-09-29)
+
+The user asked for Fox, or both if doable; both it is.
+
+- **`fox_moves.py` subclasses `mario_moves.Mario`**: situation reading, teching, DI, getups, ledge
+  options, mashing and edge safety are shared.
+  - Fox has his own plans (`lasers` for zoning, the shine in approach, pressure, out of shield and at
+    the ledge, down-air).
+  - His recovery: Illusion when level with the ledge and within 55 units, else Firefox with the stick
+    aimed at the ledge for the whole 45-frame charge.
+- **Characters in the brain**: `gomi_brain.CHARACTERS` maps CKind to move library, and each module
+  gives `NAME`, `CKIND`, `ZONE`, `PLANS` and `Player`. Her plan schema, prompt and fallback follow
+  the character.
+- **Memory is per character** (`gomi/mario/`, `gomi/fox/`); the Mario-only files from before move
+  into `mario/` on first start. The Discord outbox is shared, and each file names the character.
+- **"If gomi is marked for use, disable slippi-ai/phillip and have gomi take over"**:
+  - `play.py --gomi` now runs `agent.py --gomi` with no roster and no model. It doesn't load
+    TensorFlow, slippi-env or Phillip, and doesn't even need the Phillip checkout.
+  - P2's door opens with Mario or Fox, and anyone else stands still with a log line saying so.
+  - The launcher's checkbox sits in the AI box and greys out the other AI choices.

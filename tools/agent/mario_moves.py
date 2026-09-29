@@ -18,6 +18,9 @@ from dataclasses import dataclass
 import bridge
 
 MARIO = 0x08  # CKind
+NAME = "Mario"
+CKIND = MARIO
+ZONE = "fireball"  # the plan that keeps them out at range (her rules use it when they're far)
 
 # The plans Gomi chooses from, with the line her prompt shows for each.
 PLANS = {
@@ -150,6 +153,8 @@ def situation(me, opp, stage):
 
 class Mario:
     """Turns the current plan into one pad per game frame."""
+
+    ZONE = ZONE
 
     def __init__(self, seed=None):
         self.rng = random.Random(seed)
@@ -401,7 +406,10 @@ class Mario:
             if s.toward != s.facing:
                 return self.hit(pad(cx=-s.facing * 80), 12)  # back-air
             return self.hit(pad(A), 12)                  # neutral-air
-        away = plan in ("fireball", "space", "defend")
+        away = plan in (self.ZONE, "space", "defend")
         direction = -s.toward if away and s.dist < 30 else s.toward
         fast_fall = s.vy < 0 and s.y > 5 and self.rng.random() < 0.05
         return pad(sx=direction * 60, sy=-80 if fast_fall else 0)
+
+
+Player = Mario

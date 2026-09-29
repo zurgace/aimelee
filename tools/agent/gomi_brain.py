@@ -1,10 +1,11 @@
-"""Gomihyu plays Mario: she calls the plays, mario_moves.py plays them.
+"""Gomihyu plays Mario and Fox: she calls the plays, a move library plays them.
 
 Gomihyu (https://github.com/zurgace/gomihyu) is a small language model
 (Gemma 4 E4B through Ollama) with an Archdemon persona. She is far too slow
 to press buttons 60 times a second, so a planner thread asks her every half
-second or so which game plan Mario should follow, given the situation; the
-game thread only reads her latest answer and never waits for her.
+second or so which game plan her character should follow, given the
+situation; the game thread only reads her latest answer and never waits for
+her. mario_moves.py and fox_moves.py turn a plan into inputs, frame by frame.
 
 After every match she gets a summary -- the result, what each plan dealt and
 took, how the stocks were lost -- plus her old lessons, and writes her new
@@ -13,10 +14,12 @@ tallied across matches (per opponent), and her prompt shows that
 scoreboard; without Ollama a rule-based chooser picks plans weighted by it,
 so she keeps improving on the numbers alone.
 
-Her files (per machine, not in git), in tools/agent/gomi/ or $GOMI_DIR:
+Her files (per machine, not in git), in tools/agent/gomi/ or $GOMI_DIR, one
+folder per character she plays (mario/, fox/):
   lessons.md        what she has learned, rewritten after each match
   scoreboard.json   per-plan totals, by opponent character
   matches.jsonl     one summary per match
+and for both:
   outbox/           one file per match for her Discord bot to post about
                     (gomihyu's MELEE_OUTBOX); the newest 20 are kept
 
@@ -35,8 +38,12 @@ import urllib.request
 from pathlib import Path
 
 import bridge
-import mario_moves as mm
+import fox_moves
+import mario_moves
 import roster
+
+# CKind -> the move library for each character she plays.
+CHARACTERS = {mario_moves.CKIND: mario_moves, fox_moves.CKIND: fox_moves}
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "http://localhost:11434/api/chat"
@@ -48,19 +55,22 @@ STAGE_NAMES = {0x1F: "Battlefield", 0x20: "Final Destination", 0x03: "Pokemon St
 SAY_EVERY_S = 20.0
 FAILURES_BEFORE_RULES = 3
 
-PERSONA = (
-    "You are Gomi (Gomihyu), a self-proclaimed Archdemon destined to rule Hell. You're proud, "
-    "dramatic and sure of your own genius, your schemes tend to backfire, and you hate losing -- "
-    "but you learn from it, even if you'd never admit you needed to. Right now you're playing "
-    "Mario in Super Smash Bros. Melee against a human, with a controller that does exactly what "
-    "you order."
-)
 
-PLAN_SCHEMA = {
-    "type": "object",
-    "properties": {"plan": {"type": "string", "enum": list(mm.PLANS)}, "say": {"type": "string"}},
-    "required": ["plan", "say"],
-}
+
+def persona(name):
+    return ("You are Gomi (Gomihyu), a self-proclaimed Archdemon destined to rule Hell. You're proud, "
+            "dramatic and sure of your own genius, your schemes tend to backfire, and you hate losing -- "
+            "but you learn from it, even if you'd never admit you needed to. Right now you're playing "
+            f"{name} in Super Smash Bros. Melee against a human, with a controller that does exactly what "
+            "you order.")
+
+
+def plan_schema(moves):
+    return {"type": "object",
+            "properties": {"plan": {"type": "string", "enum": list(moves.PLANS)}, "say": {"type": "string"}},
+            "required": ["plan", "say"]}
+
+
 REFLECT_SCHEMA = {
     "type": "object",
     "properties": {"lessons": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_LESSONS},
@@ -147,9 +157,8 @@ class Scoreboard:
     def lines(self, opponent):
         table = self.table(opponent)
         out = []
-        for plan in mm.PLANS:
-            t = table.get(plan)
-            if t and t["frames"] > 0:
+        for plan, t in table.items():
+            if t["frames"] > 0:
                 out.append(f"{plan}: {t['frames'] / 3600:.1f} min, dealt {t['dealt']}%, took {t['taken']}%, "
                            f"KOs {t['kos']}, lost {t['deaths']} stocks -> {self.score(plan, opponent):+.0f}/min")
         return out
@@ -190,8 +199,9 @@ class GomiBrain:
                                  model or os.environ.get("GOMI_MODEL") or DEFAULT_MODEL)
         self.plan_every = float(plan_every or os.environ.get("GOMI_PLAN_EVERY") or 0.5)
         self.rng = random.Random(seed)
-        self.mario = mm.Mario(seed)
-        self.scoreboard = Scoreboard(self.dir / "scoreboard.json")
+        self.seed = seed
+        self.migrate()
+        self.use(mario_moves)
         self.lock = threading.Lock()
         self.planner = None
         self.reflecting = None
@@ -200,34 +210,51 @@ class GomiBrain:
         self.llm_down = None   # why Ollama can't play, once known
         self.said_at = 0.0
 
+    def migrate(self):
+        """Her files from when she only played Mario go in mario/."""
+        old = [self.dir / n for n in ("lessons.md", "scoreboard.json", "matches.jsonl")]
+        if any(p.exists() for p in old) and not (self.dir / "mario").exists():
+            (self.dir / "mario").mkdir(parents=True)
+            for p in old:
+                if p.exists():
+                    p.replace(self.dir / "mario" / p.name)
+
+    def use(self, moves):
+        """Play this character (a move library), with its own lessons and scoreboard."""
+        self.moves = moves
+        self.player = moves.Player(self.seed)
+        self.char_dir = self.dir / moves.NAME.lower()
+        self.scoreboard = Scoreboard(self.char_dir / "scoreboard.json")
+
     # ---- the game thread -------------------------------------------------
 
     def start_match(self, st, port, opp_port):
         opp = st.fighters[opp_port]
+        self.use(CHARACTERS.get(st.fighters[port].ckind, mario_moves))
         self.port, self.opp_port = port, opp_port
         self.opponent = roster.display(opp.ckind)
         self.stage = st.stage
-        self.mario.reset()
+        self.player.reset()
         self.plan = "space"
         self.plan_since = time.monotonic()
-        self.tally = {p: new_tally() for p in mm.PLANS}
+        self.tally = {p: new_tally() for p in self.moves.PLANS}
         self.recover_deaths = 0
         self.last = None
         self.last_frame = None
         self.pad = bridge.Pad.neutral()
         self.snapshot = None
-        self.lessons = read_lessons(self.dir / "lessons.md")
+        self.lessons = read_lessons(self.char_dir / "lessons.md")
         self.system = self.match_prompt()
         self.active = True
         self.stop_match = threading.Event()
         self.planner = threading.Thread(target=self.plan_loop, args=(self.stop_match,), daemon=True)
         self.planner.start()
-        self.log(f"Gomihyu plays Mario vs {self.opponent} ({self.llm.model}; "
+        self.log(f"Gomihyu plays {self.moves.NAME} vs {self.opponent} ({self.llm.model}; "
                  f"{len(self.lessons)} lessons, {self.scoreboard.data['matches']} matches played)")
 
     def pad_for(self, st, port, opp_port):
         me, opp = st.fighters[port], st.fighters[opp_port]
-        s = mm.situation(me, opp, st.stage)
+        s = self.moves.situation(me, opp, st.stage)
         new_frame = self.last_frame is None or st.scene_frame > self.last_frame
         if not new_frame:
             return self.pad
@@ -235,7 +262,7 @@ class GomiBrain:
         with self.lock:
             plan = self.plan
         self.count(plan, me, opp)
-        self.pad = self.mario.step(s, plan)
+        self.pad = self.player.step(s, plan)
         self.snapshot = (s, me.stocks, opp.stocks, plan)
         return self.pad
 
@@ -246,7 +273,7 @@ class GomiBrain:
             my_stocks, my_pct, their_stocks, their_pct = self.last
             if me.stocks < my_stocks:
                 t["deaths"] += 1
-                if self.mario.mode == "recover":
+                if self.player.mode == "recover":
                     self.recover_deaths += 1
             elif me.percent > my_pct:
                 t["taken"] += me.percent - my_pct
@@ -272,8 +299,8 @@ class GomiBrain:
         record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "opponent": self.opponent, "stage": self.stage,
                   "won": won, "stocks": [my_stocks, their_stocks], "percent": [my_pct, their_pct],
                   "plans": plans, "recovery_deaths": self.recover_deaths}
-        self.dir.mkdir(parents=True, exist_ok=True)
-        with open(self.dir / "matches.jsonl", "a") as f:
+        self.char_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.char_dir / "matches.jsonl", "a") as f:
             f.write(json.dumps(record) + "\n")
         ranked = sorted(plans, key=lambda p: self.scoreboard.score(p, self.opponent))
         best = f"; best plan so far {ranked[-1]}, worst {ranked[0]}" if len(ranked) > 1 else ""
@@ -296,7 +323,7 @@ class GomiBrain:
         outbox.mkdir(parents=True, exist_ok=True)
         board = self.scoreboard.data
         vs = board["records"].get(self.opponent, {})
-        event = {"version": 1, "time": time.time(), "character": "Mario",
+        event = {"version": 1, "time": time.time(), "character": self.moves.NAME,
                  "opponent_character": self.opponent,
                  "stage": STAGE_NAMES.get(record["stage"], f"stage {record['stage']}"),
                  "won": record["won"], "stocks": record["stocks"], "percent": record["percent"],
@@ -320,11 +347,11 @@ class GomiBrain:
     # ---- the planner thread ---------------------------------------------
 
     def match_prompt(self):
-        plans = "\n".join(f"- {p}: {d}" for p, d in mm.PLANS.items())
+        plans = "\n".join(f"- {p}: {d}" for p, d in self.moves.PLANS.items())
         lessons = "\n".join(f"- {ln}" for ln in self.lessons) or "- (none yet: this is your first match)"
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (no numbers yet)"
-        return (f"{PERSONA}\n\nYou're facing {self.opponent}. Twice a second you're told the situation "
-                f"and choose Mario's game plan:\n{plans}\n"
+        return (f"{persona(self.moves.NAME)}\n\nYou're facing {self.opponent}. Twice a second you're told "
+                f"the situation and choose {self.moves.NAME}'s game plan:\n{plans}\n"
                 "Recovering, teching and getting up happen by themselves.\n\n"
                 f"Your lessons from earlier matches:\n{lessons}\n\n"
                 f"What each plan has done against {self.opponent} so far:\n{board}\n\n"
@@ -335,7 +362,7 @@ class GomiBrain:
         s, my_stocks, their_stocks, plan = snap
         t = self.tally[plan]
         secs = time.monotonic() - self.plan_since
-        return (f"You: Mario, {s.percent}%, {my_stocks} stocks, {where(s.x, s.y, s.air, s.edge)}. "
+        return (f"You: {self.moves.NAME}, {s.percent}%, {my_stocks} stocks, {where(s.x, s.y, s.air, s.edge)}. "
                 f"{self.opponent}: {s.opp_percent}%, {their_stocks} stocks, "
                 f"{where(s.opp_x, s.opp_y, s.opp_air, s.edge)}, {s.dist:.0f} units "
                 f"{'to your right' if s.dx > 0 else 'to your left'}"
@@ -349,9 +376,9 @@ class GomiBrain:
         if s.opp_offstage and not s.offstage:
             options = ["edgeguard", "space"]
         elif s.dist > 60:
-            options = ["fireball", "approach", "space"]
+            options = [self.moves.ZONE, "approach", "space"]
         else:
-            options = ["approach", "pressure", "defend", "space", "fireball"]
+            options = ["approach", "pressure", "defend", "space", self.moves.ZONE]
         if self.rng.random() < 0.15:
             return self.rng.choice(options)
         weights = [math.exp(max(-5.0, min(5.0, self.scoreboard.score(p, self.opponent) / 15))) for p in options]
@@ -372,7 +399,7 @@ class GomiBrain:
         if self.llm_down is None or self.llm_down:
             self.llm_down = self.llm.check()
             if self.llm_down:
-                self.log(f"{self.llm_down}; Mario plays on Gomi's rules this match")
+                self.log(f"{self.llm_down}; {self.moves.NAME} plays on Gomi's rules this match")
         failures = 0
         while not stop.is_set():
             t0 = time.monotonic()
@@ -382,12 +409,12 @@ class GomiBrain:
                     self.set_plan(self.fallback(snap))
                 else:
                     try:
-                        ans = self.llm.chat(self.system, self.situation_text(snap), PLAN_SCHEMA,
+                        ans = self.llm.chat(self.system, self.situation_text(snap), plan_schema(self.moves),
                                             num_predict=80, temperature=0.8, timeout=5.0)
                         failures = 0
                         if stop.is_set():
                             break
-                        if ans.get("plan") in mm.PLANS:
+                        if ans.get("plan") in self.moves.PLANS:
                             self.set_plan(ans["plan"])
                         say = str(ans.get("say") or "").strip()
                         if say and time.monotonic() - self.said_at > SAY_EVERY_S:
@@ -397,14 +424,15 @@ class GomiBrain:
                         failures += 1
                         if failures >= FAILURES_BEFORE_RULES:
                             self.llm_down = f"Ollama stopped answering ({e})"
-                            self.log(f"{self.llm_down}; Mario plays on Gomi's rules for the rest of the match")
+                            self.log(f"{self.llm_down}; {self.moves.NAME} plays on Gomi's rules for the rest "
+                                     "of the match")
             stop.wait(max(0.02, self.plan_every - (time.monotonic() - t0)))
 
     # ---- after the match -------------------------------------------------
 
     def reflect(self, record):
         """Her new lessons from the match, and her line about it: (line, lessons)."""
-        lessons = read_lessons(self.dir / "lessons.md")
+        lessons = read_lessons(self.char_dir / "lessons.md")
         rows = "\n".join(f"- {p}: {t['frames'] / 60:.0f}s, dealt {t['dealt']}%, took {t['taken']}%, "
                          f"KOs {t['kos']}, lost {t['deaths']} stocks" for p, t in record["plans"].items())
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (none)"
@@ -420,7 +448,7 @@ class GomiBrain:
                 "use when (keep the old ones that still hold, drop what the numbers disprove), in your own "
                 'voice. Answer in JSON: {"lessons": [...], "line": one dramatic in-character line about '
                 "this match}.")
-        system = f"{PERSONA}\n\nYou just finished a match and are thinking it over."
+        system = f"{persona(self.moves.NAME)}\n\nYou just finished a match and are thinking it over."
         if self.llm_down:
             self.llm_down = self.llm.check()
         if self.llm_down:
@@ -433,13 +461,13 @@ class GomiBrain:
             return "", lessons
         new = [str(ln).strip() for ln in ans.get("lessons", []) if str(ln).strip()][:MAX_LESSONS]
         if new:
-            write_lessons(self.dir / "lessons.md", new)
+            write_lessons(self.char_dir / "lessons.md", new)
         line = str(ans.get("line") or "").strip()
         if line:
             self.log(f'after the match: "{line[:200]}"')
-        self.log(f"{len(new)} lessons in {self.dir / 'lessons.md'}")
+        self.log(f"{len(new)} lessons in {self.char_dir / 'lessons.md'}")
         return line, new or lessons
 
 
 def plays(ckind):
-    return ckind == mm.MARIO
+    return ckind in CHARACTERS

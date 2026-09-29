@@ -303,7 +303,7 @@ class AgentLoopTest(unittest.TestCase):
                                        "--socket", sock, "--seed", "3", "--once", "--gomi"],
                                       capture_output=True, text=True, timeout=60, env=env)
                 game.join(10)
-                lessons = (Path(tmp) / "gomi" / "lessons.md").read_text()
+                lessons = (Path(tmp) / "gomi" / "mario" / "lessons.md").read_text()
         finally:
             fake.close()
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -313,6 +313,39 @@ class AgentLoopTest(unittest.TestCase):
         fight = [t for t, st in enumerate(game.states, 1) if st.in_fight]
         self.assertTrue(all(t in game.replies and not game.replies[t][1] & bridge.IN_RELEASE for t in fight))
         self.assertTrue(any(game.replies[t][2] != bridge.Pad.neutral() for t in fight), "Mario moves")
+
+    def test_gomi_alone(self):
+        """--gomi with no agents: she takes Fox; anyone else stands still."""
+        sys.path.insert(0, str(HERE))
+        from test_gomi import FakeOllama
+
+        FOX, MARTH = 0x02, 0x09
+        menu = [(False, False, i, False) for i in range(1, 20)]
+        script = (menu + [(True, i == 1, i, True, FOX) for i in range(1, 150)]
+                  + menu + [(True, i == 1, i, True, MARTH) for i in range(1, 100)] + menu)
+        fake = FakeOllama(plan="lasers")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                sock = str(Path(tmp) / "agent.sock")
+                game = FakeGame(sock, script)
+                game.start()
+                env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
+                           GOMI_PLAN_EVERY="0.05")
+                proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--gomi", "--socket", sock,
+                                       "--seed", "3", "--once"], capture_output=True, text=True, timeout=60, env=env)
+                game.join(10)
+                fox_lessons = (Path(tmp) / "gomi" / "fox" / "lessons.md").exists()
+        finally:
+            fake.close()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Gomihyu alone plays: Mario, Fox", proc.stdout)
+        self.assertIn("gomi: Gomihyu plays Fox vs Captain Falcon", proc.stdout)
+        self.assertIn("Gomihyu doesn't play Marth; the port stands still", proc.stdout)
+        self.assertTrue(fox_lessons)
+        fox = [t for t, st in enumerate(game.states, 1) if st.in_fight and st.fighters[1].ckind == FOX]
+        marth = [t for t, st in enumerate(game.states, 1) if st.in_fight and st.fighters[1].ckind == MARTH]
+        self.assertTrue(all(not game.replies[t][1] & bridge.IN_RELEASE for t in fox))
+        self.assertFalse(any(t in game.replies and not game.replies[t][1] & bridge.IN_RELEASE for t in marth))
 
 
 if __name__ == "__main__":

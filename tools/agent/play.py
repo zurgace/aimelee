@@ -58,9 +58,10 @@ Options:
   --p2-pick on|off   on (default): opening the AI's door on the character
                      select seats it as HMN with a random character an AI
                      plays (Sheik aside: hold A on Zelda for her)
-  --gomi             Gomihyu, a language model through Ollama, plays Mario:
-                     she picks the game plan, and learns after each match
-                     (gomi_brain.py; tools/agent/gomi/ keeps her lessons)
+  --gomi             Gomihyu, a language model through Ollama, takes over P2
+                     as Mario or Fox (slippi-ai and the 2017 agents stay
+                     off): she picks the game plan, and learns after each
+                     match (gomi_brain.py; tools/agent/gomi/ keeps her lessons)
   --quick            skip the menus: boot straight into a Falcon match (or
                      --agent's matchup): debug VS, both ports human
   --record FILE      record every state the agent sees (dump_state format;
@@ -334,7 +335,7 @@ def probe_slippi(python, model):
     return ckinds
 
 
-GOMI_MARIO = 0x08
+GOMI_CKINDS = (0x08, 0x02)  # Mario and Fox (gomi_brain.CHARACTERS)
 
 
 def gomi_status():
@@ -345,8 +346,8 @@ def gomi_status():
                            os.environ.get("GOMI_MODEL") or gomi_brain.DEFAULT_MODEL)
     why = llm.check()
     if why:
-        return f"Gomihyu plays Mario on her rules for now: {why}"
-    return f"Gomihyu plays Mario ({llm.model} via Ollama)"
+        return f"Gomihyu plays Mario and Fox on her rules for now: {why}"
+    return f"Gomihyu plays Mario and Fox ({llm.model} via Ollama)"
 
 
 SHEIK = 0x13  # picked by holding A on Zelda as the match loads: not a character select icon
@@ -384,7 +385,7 @@ def main():
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--random-stages", choices=["legal", "all"], default="legal")
     ap.add_argument("--gomi", action="store_true",
-                    help="Gomihyu, a language model through Ollama, plays Mario (gomi_brain.py)")
+                    help="Gomihyu, a language model through Ollama, takes over P2 as Mario or Fox")
     ap.add_argument("--p2-pick", choices=["on", "off"], default="on",
                     help="opening the AI's door on the character select gives it a random "
                          "character an AI plays (default on)")
@@ -403,11 +404,19 @@ def main():
         fail("--delay applies to one agent: give --agent with it")
     settings = load_settings()
     melee = find_melee(args.melee)
-    args.phillip = find_phillip(args.phillip, args.agent or "FalconFalconBF")
+    if args.gomi and args.agent is not None:
+        fail("--gomi takes over P2 by itself: leave out --agent")
+    if not args.gomi or args.quick:  # Gomihyu alone needs no Phillip
+        args.phillip = find_phillip(args.phillip, args.agent or "FalconFalconBF")
     disc = find_disc(args.iso, settings)
     python = sys.executable
     agent_script = HERE / "agent.py"
-    if args.agent is not None:
+    if args.gomi:
+        # She takes over P2: slippi-ai and the 2017 agents aren't loaded at all.
+        agent_source = ["--gomi"]
+        ai_chars = ",".join(str(c) for c in GOMI_CKINDS)
+        print(f"play: {gomi_status()}; slippi-ai and the 2017 agents are off while she plays", flush=True)
+    elif args.agent is not None:
         agent_source = ["--weights", str(ensure_weights(args))]
         char = agent_params(args.phillip, args.agent).get("char")
         ai_chars = css_chars(roster_ckinds=[phillip_obs.CKIND_BY_PHILLIP_NAME[char]]
@@ -430,12 +439,6 @@ def main():
                 fail("slippi-ai is not available (see above)")
             else:
                 print("play: slippi-ai is not available (see above): the 2017 agents play", flush=True)
-    if args.gomi:
-        if args.agent is not None:
-            fail("--gomi works with the roster, not with --agent")
-        agent_source.append("--gomi")
-        ai_chars = css_chars(model_ckinds=[int(c) for c in ai_chars.split(",") if c], roster_ckinds=[GOMI_MARIO])
-        print(f"play: {gomi_status()}", flush=True)
 
     if WINDOWS or args.tcp:
         sock = bridge.free_tcp_address()
@@ -464,7 +467,7 @@ def main():
         if stage is not None and stage != 0x20:  # the debug match is on Final Destination already
             env["MELEE_DEBUG_VS_STAGE"] = str(stage)
 
-    who = args.agent or "Phillip's agents"
+    who = "Gomihyu" if args.gomi else args.agent or "Phillip's agents"
     print(f"play: {melee} with {who} on P{args.port}; disc {disc}", flush=True)
     game = subprocess.Popen([str(melee), str(disc)], cwd=str(melee.parent), env=env)
     agent_cmd = [python, str(agent_script), *agent_source, "--socket", sock, "--epsilon", str(args.epsilon)]

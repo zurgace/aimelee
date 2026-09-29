@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
+import fox_moves  # noqa: E402
 import gomi_brain  # noqa: E402
 import mario_moves as mm  # noqa: E402
 from test_mario_moves import fighter  # noqa: E402
@@ -163,7 +164,7 @@ class GomiTest(unittest.TestCase):
         b.end_match()
         b.close()
         self.assertTrue(any("no reflection" in ln for ln in self.logs))
-        self.assertEqual(json.loads((Path(self.tmp.name) / "scoreboard.json").read_text())["matches"], 1)
+        self.assertEqual(json.loads((Path(self.tmp.name) / "mario" / "scoreboard.json").read_text())["matches"], 1)
 
     def test_a_match_leaves_lessons_scoreboard_and_record(self):
         fake = FakeOllama(plan="fireball", lessons=[f"lesson {i}" for i in range(12)])
@@ -181,7 +182,7 @@ class GomiTest(unittest.TestCase):
             b.close()
         finally:
             fake.close()
-        d = Path(self.tmp.name)
+        d = Path(self.tmp.name) / "mario"
         lessons = gomi_brain.read_lessons(d / "lessons.md")
         self.assertEqual(lessons, [f"lesson {i}" for i in range(8)])
         board = json.loads((d / "scoreboard.json").read_text())
@@ -192,12 +193,13 @@ class GomiTest(unittest.TestCase):
         self.assertEqual(record["stocks"], [3, 4])
         self.assertTrue(any('after the match: "I let you win' in ln for ln in self.logs))
         # And a file for her Discord bot, written after the reflection.
-        posts = sorted((d / "outbox").iterdir())
+        posts = sorted((d.parent / "outbox").iterdir())
         self.assertEqual([p.suffix for p in posts], [".json"], "one file, no temp file left")
         event = json.loads(posts[0].read_text())
         self.assertEqual((event["opponent_character"], event["stage"], event["won"], event["stocks"]),
                          ("Fox", "Final Destination", False, [3, 4]))
         self.assertEqual(event["line"], "I let you win, mortal.")
+        self.assertEqual(event["character"], "Mario")
         self.assertEqual(event["lessons"], [f"lesson {i}" for i in range(8)])
         self.assertEqual(event["record"], {"matches": 1, "wins": 0, "matches_vs": 1, "wins_vs": 0})
         # The next match's prompt carries both.
@@ -207,6 +209,39 @@ class GomiTest(unittest.TestCase):
         prompt = b2.match_prompt()
         self.assertIn("lesson 7", prompt)
         self.assertIn("fireball: ", prompt)
+
+    def test_she_plays_fox_too(self):
+        fake = FakeOllama(plan="lasers")
+        try:
+            b = self.brain(fake.url)
+            g = Game(b)
+            g.me = fighter(x=-20, ckind=0x02)
+            g.opp = fighter(x=40, ckind=0x00)
+            g.start()
+            self.assertTrue(g.until(lambda: b.plan == "lasers"), self.logs)
+            self.assertIn("Gomihyu plays Fox vs Captain Falcon", self.logs[0])
+            system = fake.requests[0]["messages"][0]["content"]
+            self.assertIn("lasers", system)
+            self.assertIn("playing Fox", system)
+            self.assertEqual(fake.requests[0]["format"]["properties"]["plan"]["enum"], list(fox_moves.PLANS))
+            b.end_match()
+            b.close()
+        finally:
+            fake.close()
+        d = Path(self.tmp.name)
+        self.assertTrue((d / "fox" / "lessons.md").exists())
+        self.assertFalse((d / "mario").exists(), "Mario's lessons and scoreboard are his own")
+        event = json.loads(next((d / "outbox").iterdir()).read_text())
+        self.assertEqual(event["character"], "Fox")
+
+    def test_old_files_move_to_mario(self):
+        d = Path(self.tmp.name)
+        (d / "lessons.md").write_text("# Gomi's lessons\n\n- fireballs rule\n")
+        (d / "scoreboard.json").write_text('{"matches": 3, "wins": 1}')
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        self.assertEqual(gomi_brain.read_lessons(d / "mario" / "lessons.md"), ["fireballs rule"])
+        self.assertEqual(b.scoreboard.data["matches"], 3)
+        self.assertFalse((d / "lessons.md").exists())
 
     def test_outbox_keeps_the_newest(self):
         b = self.brain("http://127.0.0.1:9/api/chat")

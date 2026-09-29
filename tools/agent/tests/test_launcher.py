@@ -85,6 +85,12 @@ class StatusTest(unittest.TestCase):
         self.check("gomi: match over: lost 0-2 stocks vs Fox; best plan so far fireball, worst approach",
                    ("result", "Gomihyu lost 0-2 stocks vs Fox; best plan so far fireball, worst approach"))
         self.assertIsNone(launcher.status_for("gomi: plan: fireball"))
+        self.check("gomi: Gomihyu plays Fox vs Marth (gemma4:e4b; 0 lessons, 0 matches played)",
+                   ("match", "This match: Gomihyu plays Fox vs Marth"))
+        self.check("agent: Gomihyu doesn't play Peach; the port stands still this match. Pick Mario or Fox",
+                   ("match", "This match: Gomihyu doesn't play Peach (pick Mario or Fox for P2)"))
+        self.check("[    1.950] agent: client connected (#1)",
+                   ("ai", "AI ready: pick your characters and play"), brain="gomi")
 
     def test_noise_is_ignored(self):
         for line in ("agent: roster: Fox, Falco", "[    3.0] agent: driving port 2 from tick 812",

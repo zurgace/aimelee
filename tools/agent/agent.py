@@ -98,10 +98,11 @@ class Runner:
         self.models = {}  # weights path -> PhillipModel
         self.roster = None
         self.stand_in = None
-        if args.roster is not None:
+        if args.roster is not None or args.weights is None:
+            # A roster; or none at all, when Gomihyu alone plays (--gomi without agents).
             import roster
             self.roster_mod = roster
-            self.roster = roster.read(args.roster)
+            self.roster = roster.read(args.roster) if args.roster is not None else {}
             self.agent = None
             self.name = "roster"
         else:
@@ -120,9 +121,11 @@ class Runner:
             self.rec.flush()
         if self.roster is None:
             self.describe()
-        else:
+        elif self.roster:
             chars = sorted({self.roster_mod.display(ck) for ck in self.roster})
             self.log(f"roster: {', '.join(chars)}")
+        else:
+            self.log("Gomihyu alone plays: " + ", ".join(m.NAME for m in self.gomi_mod.CHARACTERS.values()))
 
     def use(self, weights, char=None):
         """Make the agent at `weights` the one that plays."""
@@ -161,6 +164,11 @@ class Runner:
         by_stage = self.roster.get(ckind)
         entry = rd.for_stage(by_stage, stkind) if by_stage else None
         if entry is None:
+            if not self.roster and self.gomi is not None:
+                gomi = " or ".join(m.NAME for m in self.gomi_mod.CHARACTERS.values())
+                self.log(f"Gomihyu doesn't play {rd.display(ckind)}; the port stands still this match. "
+                         f"Pick {gomi} for her, or set it to CPU on the character select")
+                return False
             covered = sorted({rd.display(ck) for ck in self.roster})
             self.log(f"no Phillip agent plays {rd.display(ckind)}; the port stands still this match. "
                      f"Pick {', '.join(covered)}, or set it to CPU on the character select")
@@ -352,7 +360,7 @@ class Runner:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    which = ap.add_mutually_exclusive_group(required=True)
+    which = ap.add_mutually_exclusive_group()
     which.add_argument("--weights", type=Path, help="an .npz from export_weights.py: one agent")
     which.add_argument("--roster", type=Path,
                        help="a roster file from play.py: the agent follows the port's character")
@@ -371,6 +379,8 @@ def main():
     ap.add_argument("--gomi", action="store_true",
                     help="roster mode: Gomihyu (gomi_brain.py, through Ollama) plays Mario")
     args = ap.parse_args()
+    if args.weights is None and args.roster is None and not args.gomi:
+        ap.error("one of --weights, --roster or --gomi is required")
 
     runner = Runner(args)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))

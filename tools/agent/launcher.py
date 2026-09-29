@@ -108,16 +108,19 @@ def status_for(line, brain="auto"):
     if line.startswith("play: ") and " with " in line and "; disc " in line:
         return "game", "Game running. Close the game window to stop."
     if line.startswith("agent: client connected"):
-        if brain == "classic":
+        if brain in ("classic", "gomi"):
             return "ai", "AI ready: pick your characters and play"
         return "ai", "Loading the AI model..."
-    m = re.match(r"gomi: Gomihyu plays Mario vs (.+?) \(", line)
+    m = re.match(r"gomi: Gomihyu plays (\w+) vs (.+?) \(", line)
     if m:
-        return "match", f"This match: Gomihyu plays Mario vs {m.group(1)}"
+        return "match", f"This match: Gomihyu plays {m.group(1)} vs {m.group(2)}"
+    m = re.match(r"agent: (Gomihyu doesn't play .+?);", line)
+    if m:
+        return "match", "This match: " + m.group(1) + " (pick Mario or Fox for P2)"
     m = re.match(r'gomi: (?:Gomi|after the match): "(.+)"$', line)
     if m:
         return "gomi", f'Gomi: "{m.group(1)}"'
-    if line.startswith("play: Gomihyu plays Mario on her rules"):
+    if line.startswith("play: Gomihyu plays Mario and Fox on her rules"):
         return "gomi", "Gomihyu: Ollama isn't answering, so she plays on her rules (see log)"
     m = re.match(r"gomi: match over: (.+)$", line)
     if m:
@@ -286,8 +289,14 @@ class Launcher:
         ai = ttk.LabelFrame(self.options, text="AI", padding=8)
         ai.pack(fill="x")
         self.brain = tk.StringVar(value=self.opts["brain"])
-        for value, text in BRAINS:
-            ttk.Radiobutton(ai, text=text, value=value, variable=self.brain).pack(anchor="w")
+        self.brain_buttons = [ttk.Radiobutton(ai, text=text, value=value, variable=self.brain)
+                              for value, text in BRAINS]
+        for button in self.brain_buttons:
+            button.pack(anchor="w")
+        self.gomi = tk.BooleanVar(value=self.opts["gomi"])
+        ttk.Checkbutton(ai, text="Gomihyu takes over P2, as Mario or Fox (needs Ollama with gemma4:e4b)",
+                        variable=self.gomi, command=self.gomi_changed).pack(anchor="w", pady=(6, 0))
+        self.gomi_changed()
         game = ttk.LabelFrame(self.options, text="Game", padding=8)
         game.pack(fill="x", pady=(8, 0))
         self.p2_pick = tk.BooleanVar(value=self.opts["p2_pick"])
@@ -295,9 +304,6 @@ class Launcher:
                         variable=self.p2_pick).pack(anchor="w")
         self.legal = tk.BooleanVar(value=self.opts["legal_stages"])
         ttk.Checkbutton(game, text="Random stage picks tournament stages only", variable=self.legal).pack(anchor="w")
-        self.gomi = tk.BooleanVar(value=self.opts["gomi"])
-        ttk.Checkbutton(game, text="Gomihyu plays Mario (needs Ollama with gemma4:e4b)",
-                        variable=self.gomi).pack(anchor="w")
         disc = ttk.Frame(game)
         disc.pack(fill="x", pady=(6, 0))
         ttk.Label(disc, text="Disc:").pack(side="left")
@@ -327,6 +333,12 @@ class Launcher:
         root.after(100, self.pump)
 
     # ---- options ---------------------------------------------------------
+
+    def gomi_changed(self):
+        """With Gomihyu on, the other AIs are off: their choice doesn't apply."""
+        state = "disabled" if self.gomi.get() else "!disabled"
+        for button in self.brain_buttons:
+            button.state([state])
 
     def show_disc(self):
         d = self.opts.get("disc")
@@ -392,7 +404,7 @@ class Launcher:
                     continue
                 self.lines.append(line)
                 self.append(line)
-                st = status_for(line, self.opts["brain"])
+                st = status_for(line, "gomi" if self.opts["gomi"] else self.opts["brain"])
                 if st is not None:
                     self.set_status(*st)
         except queue.Empty:
