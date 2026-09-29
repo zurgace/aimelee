@@ -206,7 +206,7 @@ If Ollama isn't running, she still plays, on her rule-based fallback. That fallb
 
 `tools/agent/gomi/rival.json` holds what she has noticed about you: your techniques and habits.
 
-Delete `tools/agent/gomi/` to start her over; delete only `rival.json` to make her forget you. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server.
+Delete `tools/agent/gomi/` to start her over; delete only `rival.json` to make her forget you. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server. `GOMI_NUM_CTX` (default 8192) must equal her Discord bot's `OLLAMA_NUM_CTX`: when the two differ, Ollama reloads the model every time they take turns.
 
 **Posting to Discord.** Her [Discord bot](https://github.com/zurgace/gomihyu) posts her taunts live (at most one every 30 seconds) and a post about every match, as @Gomihyu, in her own words. Both programs find each other on their own: AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, where her bot looks. To pick the channel, say **"gomi post melee here"** in it (as the bot's owner). If her posts pile up unposted, the launcher says so. See her README, "Melee results".
 

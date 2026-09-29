@@ -246,6 +246,13 @@ class KnobTest(unittest.TestCase):
         up = m.step(sit(opp_x=10, opp_y=25, opp_air=True, opp_motion=0x57, air=True, y=15, x=5), "space")
         self.assertEqual(up.cstick_y, 80, "up-air")
 
+    def test_no_follow_up_from_the_ledge(self):
+        m = mm.Mario(seed=1)
+        m.knobs["follow_up"] = 1.0
+        hanging = sit(x=-88, y=-10, motion=0xFD, opp_x=-70, opp_y=25, opp_air=True, opp_motion=0x57)
+        self.assertNotEqual(m.step(hanging, "space").button, bridge.BUTTON_X)
+        self.assertIsNone(m.combo)
+
     def test_shield_react(self):
         swing = sit(opp_x=15, opp_motion=0x3C)
         m = mm.Mario(seed=1)

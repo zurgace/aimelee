@@ -312,9 +312,10 @@ def old_top_level(bundle=BUNDLE):
     """Game files a new zip extracted over an old folder left at the top: the names in
     game/old-top-level.txt (where they used to be) that are still there. Only those."""
     try:
-        names = (Path(bundle) / "game" / "old-top-level.txt").read_text(encoding="utf-8").split()
+        text = (Path(bundle) / "game" / "old-top-level.txt").read_text(encoding="utf-8")
     except OSError:
         return []
+    names = [line.strip() for line in text.splitlines() if line.strip()]  # one name per line
     keep = {"game", "ai-melee", "ai-melee.exe", "play ai-melee.bat", "readme-ai-melee.txt"}
     return [Path(bundle) / n for n in names
             if n.lower() not in keep and "/" not in n and "\\" not in n and n not in (".", "..")

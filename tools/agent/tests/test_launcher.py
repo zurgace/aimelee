@@ -189,6 +189,16 @@ class WindowsTest(unittest.TestCase):
             self.assertEqual(launcher.old_top_level(b), [])
             self.assertEqual(launcher.old_top_level(b / "nowhere"), [])
 
+    def test_old_top_level_names_are_whole_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = Path(tmp)
+            (b / "game").mkdir()
+            for n in ("old game.dll", "old", "Play AI-Melee.bat"):
+                (b / n).write_bytes(b"")
+            (b / "game" / "old-top-level.txt").write_text("old game.dll\r\nPlay AI-Melee.bat\r\n")
+            self.assertEqual([p.name for p in launcher.old_top_level(b)], ["old game.dll"],
+                             "not 'old' or 'Play' from splitting on spaces, never the .bat")
+
     def test_exe_source(self):
         c = (AGENT / "windows" / "ai_melee_exe.c").read_text()
         self.assertIn('L"%ls\\\\ai-melee\\\\launcher.py"', c)

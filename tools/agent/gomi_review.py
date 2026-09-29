@@ -136,13 +136,14 @@ class MatchLog:
         self.last = now
         self.quiet += 1
 
+        # A grab lands when the one grabbed goes into a grabbed state (a whiff never does).
         if me.motion_id in mm.GRABBED and pme.motion_id not in mm.GRABBED:
             self.grabs["them"] += 1
-        if me.motion_id in mm.OWN_GRAB and pme.motion_id not in mm.OWN_GRAB:
+        if opp.motion_id in mm.GRABBED and popp.motion_id not in mm.GRABBED:
             self.grabs["her"] += 1
 
         if me.stocks < pme.stocks:
-            self.died(pme)
+            self.died(pme, pdoing, p_her_off)
         elif me.percent > pme.percent:
             move = move_name(opp.motion_id)
             self.taken.append((me.percent - pme.percent, move, DOING.get(pdoing, pdoing)))
@@ -157,13 +158,20 @@ class MatchLog:
             self.hit_them = (t, p_their_off)
             self.scored("her", opp.percent - popp.percent)
 
-    def died(self, before):
+    def died(self, before, doing, offstage):
+        """A stock lost. `doing` and `offstage`: her last frame before it. Hit while offstage:
+        edgeguarded. Still flying from a hit on stage (hitstun): that hit killed her. Anything
+        else offstage: her recovery fell short."""
         t = self.frames
         recent = self.hit_by is not None and t - self.hit_by[0] <= RECENT
         if recent and self.hit_by[2]:
             self.deaths.append({"offstage": True, "cause": f"hit offstage by their {self.hit_by[1]}"})
-        elif not recent and t - self.offstage_at <= RECENT:
-            self.deaths.append({"offstage": True, "cause": "fell short recovering"})
+        elif recent and doing == "hit":
+            self.deaths.append({"offstage": False,
+                                "cause": f"killed by their {self.hit_by[1]} at {before.percent}%"})
+        elif offstage or doing == "recover" or t - self.offstage_at <= RECENT:
+            after = f" after their {self.hit_by[1]}" if recent else ""
+            self.deaths.append({"offstage": True, "cause": f"fell short recovering{after}"})
         elif recent:
             self.deaths.append({"offstage": False,
                                 "cause": f"killed by their {self.hit_by[1]} at {before.percent}%"})

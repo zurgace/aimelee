@@ -32,7 +32,9 @@ in-match taunt, in the outbox both programs know,
 it). The newest 20 files are kept, in case the bot isn't running.
 
 Settings: GOMI_OLLAMA_URL (default http://localhost:11434/api/chat),
-GOMI_MODEL (default gemma4:e4b), GOMI_PLAN_EVERY (seconds, default 0.5).
+GOMI_MODEL (default gemma4:e4b), GOMI_PLAN_EVERY (seconds, default 0.5),
+GOMI_NUM_CTX (default 8192: keep it equal to her bot's OLLAMA_NUM_CTX, or
+Ollama reloads the model each time the two take turns).
 """
 
 import json
@@ -60,6 +62,7 @@ CHARACTERS = {mario_moves.CKIND: mario_moves, fox_moves.CKIND: fox_moves}
 HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "gemma4:e4b"
+DEFAULT_NUM_CTX = 8192  # gomihyu's bot's OLLAMA_NUM_CTX default: the same model, the same context
 MAX_LESSONS = 8
 OUTBOX_KEEP = 20
 STAGE_NAMES = {0x1F: "Battlefield", 0x20: "Final Destination", 0x03: "Pokemon Stadium", 0x08: "Yoshi's Story",
@@ -95,14 +98,15 @@ def reflect_schema(drills):
 class Ollama:
     """The /api/chat call gomihyu's bot makes, answering in JSON."""
 
-    def __init__(self, url, model):
+    def __init__(self, url, model, num_ctx=None):
         self.url = url
         self.model = model
+        self.num_ctx = int(num_ctx or os.environ.get("GOMI_NUM_CTX") or DEFAULT_NUM_CTX)
 
     def chat(self, system, user, schema, num_predict, temperature, timeout):
         body = {"model": self.model, "stream": False, "think": False, "format": schema, "keep_alive": "30m",
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                "options": {"temperature": temperature, "num_predict": num_predict, "num_ctx": 4096}}
+                "options": {"temperature": temperature, "num_predict": num_predict, "num_ctx": self.num_ctx}}
         req = urllib.request.Request(self.url, data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -398,13 +402,21 @@ class GomiBrain:
                  f"{self.opponent}{best}")
         if ranked:
             record["best_plan"], record["worst_plan"] = ranked[-1], ranked[0]
-        # What reflecting needs, frozen: the next match may start (as the other character) meanwhile.
+        # What reflecting needs, frozen here on the game thread: the next match may start meanwhile
+        # (as the other character), and its Reader writes to the rival while she's still thinking.
         ctx = types.SimpleNamespace(moves=self.moves, char_dir=self.char_dir, opponent=self.opponent,
-                                    scoreboard=self.scoreboard, skills=dict(self.rival.skills(self.moves)))
+                                    scoreboard=self.scoreboard, skills=dict(self.rival.skills(self.moves)),
+                                    noticed=self.rival.lines())
         self.reflecting = threading.Thread(target=self.after_match, args=(record, ctx), daemon=True)
         self.reflecting.start()
 
     def after_match(self, record, ctx):
+        try:
+            self.think_it_over(record, ctx)
+        except Exception as e:  # a background thread: say so, don't vanish
+            self.log(f"couldn't finish thinking about the match ({type(e).__name__}: {e})")
+
+    def think_it_over(self, record, ctx):
         thoughts = self.reflect(record, ctx)
         record.update(review_in_her_words=thoughts["review"], next_drill=thoughts["drill"], goal=thoughts["goal"])
         ctx.char_dir.mkdir(parents=True, exist_ok=True)
@@ -581,7 +593,7 @@ class GomiBrain:
         old = "\n".join(f"- {ln}" for ln in lessons) or "- (none yet)"
         review = "\n".join(f"- {ln}" for ln in record["review"]) or "- (nothing happened)"
         copied = f"You copied from them this match: {', '.join(record['learned'])}.\n" if record.get("learned") else ""
-        noticed = "; ".join(self.rival.lines()) or "nothing yet"
+        noticed = "; ".join(ctx.noticed) or "nothing yet"
         practice = (f"This match you were practising {record['drill_result']['text']}.\n"
                     if record.get("drill_result") else "")
         menu = "\n".join(f"- {d}: {gomi_review.drill_info(d)['does']}" for d in drills)

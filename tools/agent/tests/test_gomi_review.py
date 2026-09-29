@@ -76,6 +76,46 @@ class ReviewTest(unittest.TestCase):
         self.assertEqual(causes, ["fell short recovering", "killed by their up-smash at 126%"])
         self.assertEqual(m.log.metrics()["offstage_deaths"], 1)
 
+    def test_knocked_off_then_fell_is_an_offstage_death(self):
+        m = Match()
+        m.they_hit(0x3C, 60, doing="space")      # forward-smash on stage at 60%
+        m.step("hit", her_off=True, n=20)         # launched offstage
+        m.step("recover", her_off=True, n=110)    # recovering... and short
+        m.me.stocks = 3
+        m.step("recover", her_off=True)
+        self.assertEqual(m.log.deaths, [{"offstage": True,
+                                         "cause": "fell short recovering after their forward-smash"}])
+        self.assertEqual(m.log.metrics()["offstage_deaths"], 1)
+
+    def test_hit_while_recovering_and_launch_kos(self):
+        m = Match()
+        m.step("recover", her_off=True, n=10)
+        m.they_hit(0x45, 12, doing="recover", her_off=True)   # spiked while recovering
+        m.step("hit", her_off=True, n=30)
+        m.me.stocks = 3
+        m.step("hit", her_off=True)
+        m.me.percent = 120
+        m.step(n=200)
+        m.they_hit(0x3F, 18, doing="space")      # up-smash at 120%: flies off the top in hitstun
+        m.step("hit", n=40)
+        m.me.stocks = 2
+        m.step("hit")
+        self.assertEqual([d["cause"] for d in m.log.deaths],
+                         ["hit offstage by their down-air", "killed by their up-smash at 138%"])
+        self.assertEqual(m.log.metrics()["offstage_deaths"], 1)
+
+    def test_grabs_that_land(self):
+        m = Match()
+        m.me.motion_id = 0xD4                     # her grab whiffs
+        m.step()
+        m.me.motion_id = 0x0E
+        m.step(n=20)
+        m.me.motion_id, m.opp.motion_id = 0xD5, 0xE2   # her grab lands: they're pulled in
+        m.step()
+        m.me.motion_id, m.opp.motion_id = 0x0E, 0xE3
+        m.step()
+        self.assertEqual(dict(m.log.grabs), {"her": 1})
+
     def test_edgeguard_kos(self):
         m = Match()
         m.step(their_off=True, n=10)

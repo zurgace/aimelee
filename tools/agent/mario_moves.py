@@ -350,7 +350,7 @@ class Mario:
         if not launched and not swinging:
             self.reacted = False
             return None
-        if s.air or self.reacted or s.lying or s.holding:
+        if s.air or self.reacted or s.lying or s.holding or s.on_ledge:
             return None
         if launched and 10 < s.dy < 45 and s.dist < 30:
             self.reacted = True

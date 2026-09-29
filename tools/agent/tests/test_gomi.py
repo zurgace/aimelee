@@ -433,6 +433,42 @@ class GomiTest(unittest.TestCase):
         finally:
             fake.close()
 
+    def test_same_context_as_her_bot(self):
+        fake = FakeOllama()
+        try:
+            b = self.brain(fake.url)
+            self.play_a_match(b)
+            self.assertTrue(fake.requests)
+            self.assertEqual({r["options"]["num_ctx"] for r in fake.requests}, {8192})
+            with mock.patch.dict(os.environ, {"GOMI_NUM_CTX": "4096"}):
+                self.assertEqual(gomi_brain.Ollama(fake.url, "m").num_ctx, 4096)
+        finally:
+            fake.close()
+
+    def test_thinking_uses_a_frozen_copy_and_never_vanishes(self):
+        fake = FakeOllama()
+        try:
+            b = self.brain(fake.url)
+            b.rival.data["habits"] = {"ledge": {"roll": 5}}
+            g = Game(b)
+            g.start()
+            g.tick()
+            real = b.reflect
+            b.reflect = lambda record, ctx: (b.rival.data["habits"].clear(), real(record, ctx))[1]
+            b.end_match()
+            b.close()
+            reflect = next(r for r in fake.requests if "lessons" in r["format"]["properties"])
+            self.assertIn("from the ledge: roll 100%", reflect["messages"][1]["content"],
+                          "what she'd noticed when the match ended")
+            b.reflect = lambda record, ctx: {}["boom"]
+            g.start()
+            g.tick()
+            b.end_match()
+            b.close()
+            self.assertTrue(any("couldn't finish thinking about the match (KeyError" in ln for ln in self.logs))
+        finally:
+            fake.close()
+
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")
         self.play_a_match(b, fall_offstage=2)
