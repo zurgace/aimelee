@@ -28,35 +28,39 @@ DOING = {"approach": "approaching", "space": "spacing", "pressure": "pressuring"
          "throw": "throwing", "follow": "following up", "shield": "shielding"}
 
 # The drills. knobs: Player.knobs changes; bias: added to her plan priors (net % per minute);
+# options: starting guesses for her options (gomi_options, % traded a try);
 # metric: MatchLog.metrics() key, and whether higher is better.
 DRILLS = {
     "recovery": {
         "does": "recover earlier and higher: double jump sooner, up-B before falling too low",
-        "knobs": {"recover_early": True}, "bias": {"edgeguard": -10.0, "space": 5.0},
+        "knobs": {"recover_early": True}, "bias": {"edgeguard": -10.0, "space": 5.0}, "options": {},
         "metric": "offstage_deaths", "higher": False, "unit": "stocks lost offstage",
         "goal": "Stop falling to my doom offstage. An Archdemon returns to the stage, always.",
     },
     "neutral": {
         "does": "stay further out and wait for their whiff instead of running in",
-        "knobs": {"space_dist": 35, "patience": 0.5}, "bias": {"space": 10.0, "approach": -6.0},
+        "knobs": {"space_dist": 35}, "bias": {"space": 10.0, "approach": -6.0},
+        "options": {"wait": 4.0, "retreat": 3.0, "walk_in": 2.0, "dash_in": -3.0, "dash_attack": -4.0},
         "metric": "opening_share", "higher": True, "unit": "share of openings won",
         "goal": "Win the neutral game: patience, then strike when they whiff.",
     },
     "punish": {
         "does": "follow up: jump after them with an up-air when a hit sends them above you",
         "knobs": {"follow_up": 0.9}, "bias": {"pressure": 8.0},
+        "options": {"sh_aerial": 3.0, "grab": 3.0, "smash": 2.0},
         "metric": "damage_per_opening", "higher": True, "unit": "damage per opening",
         "goal": "Make every hit count: chase them into the air and keep the combo going.",
     },
     "defense": {
         "does": "shield their attacks up close, then grab out of shield",
         "knobs": {"shield_react": 0.7}, "bias": {"defend": 10.0},
+        "options": {"shield": 5.0, "retreat": 3.0, "wait": 2.0},
         "metric": "taken_per_min", "higher": False, "unit": "damage taken per minute",
         "goal": "Take less damage. My shield exists for a reason, apparently.",
     },
     "edgeguard": {
         "does": "go to the ledge as soon as they're knocked offstage, whatever the plan",
-        "knobs": {"ledge_early": True}, "bias": {"edgeguard": 12.0},
+        "knobs": {"ledge_early": True}, "bias": {"edgeguard": 12.0}, "options": {},
         "metric": "edgeguard_kos", "higher": True, "unit": "edgeguard KOs",
         "goal": "Nobody comes back from offstage. Guard the ledge like my throne.",
     },
@@ -74,7 +78,7 @@ def drill_info(name):
     if name in DRILLS:
         return DRILLS[name]
     tech = name.split(":", 1)[1]
-    return {"does": f"use {mm.TECHS.get(tech, tech)} as often as you can", "knobs": {}, "bias": {},
+    return {"does": f"use {mm.TECHS.get(tech, tech)} as often as you can", "knobs": {}, "bias": {}, "options": {},
             "metric": f"uses:{tech}", "higher": True, "unit": f"times you used {tech.replace('_', ' ')}",
             "goal": f"Master {tech.replace('_', ' ')}. I copied it; now I'll own it."}
 

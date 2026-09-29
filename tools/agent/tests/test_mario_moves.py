@@ -174,6 +174,7 @@ class TechTest(unittest.TestCase):
 
     def test_shffl(self):
         m = mm.Mario(seed=1, skills={"shffl": 1.0})
+        m.chooser = lambda bucket, menu: "sh_aerial"
         self.assertEqual(m.step(sit(opp_x=10), "approach").button, bridge.BUTTON_X)
         self.assertEqual(m.step(sit(opp_x=10, motion=mm.KNEE_BEND), "approach"), mm.NEUTRAL, "short hop")
         aerial = m.step(sit(opp_x=10, air=True, y=2, vy=2.0, motion=mm.JUMPING[0]), "approach")

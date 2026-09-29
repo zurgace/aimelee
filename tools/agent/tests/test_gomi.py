@@ -469,6 +469,27 @@ class GomiTest(unittest.TestCase):
         finally:
             fake.close()
 
+    def test_she_learns_options_across_matches(self):
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        self.play_a_match(b)
+        saved = json.loads((Path(self.tmp.name) / "mario" / "options.json").read_text())
+        self.assertIn("Fox", saved["by_opponent"])
+        record = json.loads((Path(self.tmp.name) / "mario" / "matches.jsonl").read_text().splitlines()[-1])
+        self.assertGreater(record["options"]["different"], 0)
+        g = Game(b)
+        g.start()
+        b.stop_match.set()
+        self.assertIn("your moves try options and learn what each one trades", b.system)
+        self.assertIs(b.player.chooser.__self__, b.options)
+
+    def test_a_shield_habit_favours_grabs(self):
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        b.rival.data["habits"] = {"defense": {"shield": 6, "jump": 1}}
+        g = Game(b)
+        g.start()
+        b.stop_match.set()
+        self.assertEqual(b.options.priors.get("grab"), 4.0)
+
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")
         self.play_a_match(b, fall_offstage=2)

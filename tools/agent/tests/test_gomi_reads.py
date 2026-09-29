@@ -144,16 +144,6 @@ class PunishTest(unittest.TestCase):
         m.reads = {"ledge": ("roll", 0.6)}
         self.assertEqual(m.step(sit(**dict(hanging, x=-40.5)), "edgeguard"), mm.NEUTRAL, "waiting there")
 
-    def test_grabs_a_shield_happy_player(self):
-        def grabs(reads):
-            n = 0
-            for seed in range(40):
-                m = mm.Mario(seed=seed)
-                m.reads = reads
-                n += m.step(sit(opp_x=10), "approach").button == bridge.BUTTON_Z
-            return n
-        self.assertGreater(grabs({"defense": ("shield", 0.6)}), grabs({}) + 8)
-
 
 if __name__ == "__main__":
     unittest.main()

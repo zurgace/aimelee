@@ -14,6 +14,11 @@ tallied across matches (per opponent), and her prompt shows that
 scoreboard; without Ollama a rule-based chooser picks plans weighted by it,
 so she keeps improving on the numbers alone.
 
+What to do each time she's free to act -- grab, a short-hop aerial, a
+fireball, backing off, waiting... -- is chosen by trial and error
+(gomi_options.py): within her plan, she tries options and keeps score of what
+each one trades in each situation.
+
 She also reads the human (gomi_reads.py): their habits, which the move
 library then punishes, and their techniques, which she copies once she has
 seen them twice -- mid-match, announcing it in Discord.
@@ -24,6 +29,7 @@ folder per character she plays (mario/, fox/):
   scoreboard.json   per-plan totals, by opponent character
   matches.jsonl     one summary per match, with its review (gomi_review.py)
   drill.json        what she practises next match, in her words, and its baseline
+  options.json      what each option has traded, per situation and opponent
 and rival.json, what she has noticed about the human (for both characters).
 
 Her Discord bot (gomihyu) posts what she says: a file per match and per
@@ -51,6 +57,7 @@ from pathlib import Path
 import bridge
 import fox_moves
 import gomi_handbook
+import gomi_options
 import gomi_reads
 import gomi_review
 import mario_moves
@@ -233,6 +240,7 @@ class GomiBrain:
         self.reader = None
         self.drill = None
         self.review = None
+        self.options = None
         self.use(mario_moves)
         self.priors = {}
         self.lock = threading.Lock()
@@ -301,12 +309,18 @@ class GomiBrain:
         self.lessons = read_lessons(self.char_dir / "lessons.md")
         self.priors = gomi_handbook.priors(self.moves.NAME, self.opponent)
         self.review = gomi_review.MatchLog()
+        option_priors = self.option_priors()
         if self.drill:
             info = gomi_review.drill_info(self.drill["drill"])
             self.player.knobs.update(info["knobs"])
             for plan, bias in info["bias"].items():
                 self.priors[plan] = self.priors.get(plan, 0.0) + bias
+            for option, bias in info["options"].items():
+                option_priors[option] = option_priors.get(option, 0.0) + bias
             self.log(f'practising this match: "{self.drill["goal"]}" ({self.drill["drill"]}: {info["does"]})')
+        self.options = gomi_options.Bandit(self.char_dir / "options.json", self.opponent,
+                                           random.Random(self.seed), option_priors)
+        self.player.chooser = self.options.choose
         self.system = self.match_prompt()
         self.active = True
         self.stop_match = threading.Event()
@@ -315,6 +329,16 @@ class GomiBrain:
         self.log(f"Gomihyu plays {self.moves.NAME} vs {self.opponent} ({self.llm.model}; "
                  f"{len(self.lessons)} lessons, {self.scoreboard.data['matches']} matches played)")
         self.warn_if_waiting()
+
+    def option_priors(self):
+        """Starting guesses for her options from what she has read of the human."""
+        priors = {}
+        habit = self.player.read("defense")
+        if habit == "shield":
+            priors["grab"] = 4.0          # they shield when she comes in: grabs beat shields
+        elif habit == "jump":
+            priors["smash"] = 3.0         # they jump when she comes in: up-smash them
+        return priors
 
     def warn_if_waiting(self):
         """Posts nobody took: her Discord bot isn't running, or looks elsewhere."""
@@ -360,16 +384,18 @@ class GomiBrain:
         t["frames"] += 1
         if self.last is not None:
             my_stocks, my_pct, their_stocks, their_pct = self.last
-            if me.stocks < my_stocks:
-                t["deaths"] += 1
-                if self.player.mode == "recover":
-                    self.recover_deaths += 1
-            elif me.percent > my_pct:
-                t["taken"] += me.percent - my_pct
-            if opp.stocks < their_stocks:
-                t["kos"] += 1
-            elif opp.percent > their_pct:
-                t["dealt"] += opp.percent - their_pct
+            died = me.stocks < my_stocks
+            ko = opp.stocks < their_stocks
+            taken = me.percent - my_pct if not died and me.percent > my_pct else 0
+            dealt = opp.percent - their_pct if not ko and opp.percent > their_pct else 0
+            t["deaths"] += died
+            t["kos"] += ko
+            t["taken"] += taken
+            t["dealt"] += dealt
+            if died and self.player.mode == "recover":
+                self.recover_deaths += 1
+            if self.options is not None:
+                self.options.frame(dealt, taken, int(ko), int(died))
         self.last = (me.stocks, me.percent, opp.stocks, opp.percent)
 
     def end_match(self):
@@ -387,11 +413,15 @@ class GomiBrain:
         self.scoreboard.save()
         self.rival.save()
         learned = self.reader.learned if self.reader is not None else []
+        self.options.finish()
+        self.options.save()
+        variety, favourites = self.options.variety()
         metrics = self.review.metrics(self.player.used)
         record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "opponent": self.opponent, "stage": self.stage,
                   "won": won, "stocks": [my_stocks, their_stocks], "percent": [my_pct, their_pct],
                   "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned,
-                  "review": self.review.summary(), "metrics": metrics}
+                  "review": self.review.summary(), "metrics": metrics,
+                  "options": {"different": variety, "most": favourites}}
         if self.drill:
             result = gomi_review.judge(self.drill["drill"], self.drill["goal"], self.drill.get("baseline", 0), metrics)
             record["drill_result"] = result
@@ -406,7 +436,7 @@ class GomiBrain:
         # (as the other character), and its Reader writes to the rival while she's still thinking.
         ctx = types.SimpleNamespace(moves=self.moves, char_dir=self.char_dir, opponent=self.opponent,
                                     scoreboard=self.scoreboard, skills=dict(self.rival.skills(self.moves)),
-                                    noticed=self.rival.lines())
+                                    noticed=self.rival.lines(), options=self.options.lines())
         self.reflecting = threading.Thread(target=self.after_match, args=(record, ctx), daemon=True)
         self.reflecting.start()
 
@@ -486,6 +516,8 @@ class GomiBrain:
         lessons = "\n".join(f"- {ln}" for ln in self.lessons) or "- (none yet: this is your first match)"
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (no numbers yet)"
         rival = "\n".join(f"- {ln}" for ln in self.rival.lines()) or "- (nothing yet)"
+        options = "\n".join(f"- {ln}" for ln in self.options.lines()) if self.options else ""
+        options = options or "- (nothing yet: you'll try everything)"
         practice = ""
         if self.drill:
             does = gomi_review.drill_info(self.drill["drill"])["does"]
@@ -500,6 +532,8 @@ class GomiBrain:
                 f"What each plan has done against {self.opponent} so far:\n{board}\n\n"
                 "What you've noticed about this human (your moves already punish their habits):\n"
                 f"{rival}\n\n"
+                "Within your plan, your moves try options and learn what each one trades (per try, % dealt "
+                f"minus % taken):\n{options}\n\n"
                 'Answer in JSON: {"plan": one of the plans, "say": a short in-character taunt, or "" '
                 "most of the time}.")
 
@@ -592,6 +626,11 @@ class GomiBrain:
         board = "\n".join(f"- {ln}" for ln in ctx.scoreboard.lines(ctx.opponent)) or "- (none)"
         old = "\n".join(f"- {ln}" for ln in lessons) or "- (none yet)"
         review = "\n".join(f"- {ln}" for ln in record["review"]) or "- (nothing happened)"
+        variety = record.get("options", {})
+        if variety.get("different"):
+            most = ", ".join(f"{gomi_options.NAMES.get(o, o)} {n}x" for o, n in variety.get("most", []))
+            review += f"\n- You tried {variety['different']} different options; most: {most}."
+        tried = "\n".join(f"- {ln}" for ln in ctx.options) or "- (not enough tries yet)"
         copied = f"You copied from them this match: {', '.join(record['learned'])}.\n" if record.get("learned") else ""
         noticed = "; ".join(ctx.noticed) or "nothing yet"
         practice = (f"This match you were practising {record['drill_result']['text']}.\n"
@@ -602,6 +641,7 @@ class GomiBrain:
                 f"percent {record['percent'][0]}% vs {record['percent'][1]}%.\n{practice}{copied}"
                 f"What happened:\n{review}\n"
                 f"What you've noticed about them: {noticed}.\n\n"
+                f"What your options trade (per try):\n{tried}\n\n"
                 f"Your plans this match:\n{rows or '- (none)'}\n\n"
                 f"All your matches against {ctx.opponent} (per plan):\n{board}\n\n"
                 f"Your lessons so far:\n{old}\n\n"

@@ -94,12 +94,32 @@ IDLE = (0x0E, 0x12, 0x14, 0x15, 0x2A)            # wait, turn, dash, run, landin
 # Settings her drills change (gomi_review.DRILLS); these defaults are her everyday game.
 KNOBS = {
     "space_dist": 25,        # spacing: back off when they're closer than this
-    "patience": 0.0,         # approach: chance to space at range instead of running in
     "recover_early": False,  # double jump and up-B sooner and higher
     "follow_up": 0.25,       # chance to jump after them when a hit sends them above her
     "shield_react": 0.0,     # chance to shield an attack up close
     "ledge_early": False,    # to the ledge whenever they're offstage, whatever the plan
 }
+
+# Her options: concrete things to try, at the ranges where they make sense. Each plan offers
+# a menu of them, and her chooser (gomi_options.Bandit: trial and error) picks one each time
+# she's free to act. Without a chooser, a uniform pick.
+RANGES = ("close", "mid", "far")        # < 20, < 45, the rest (units between them)
+OPTION_RANGES = {
+    "dash_in": ("mid", "far"), "walk_in": ("mid", "far"), "retreat": ("close", "mid"),
+    "wait": ("close", "mid", "far"), "shield": ("close", "mid"), "grab": ("close",), "dtilt": ("close",),
+    "jab": ("close",), "smash": ("close",), "dash_attack": ("mid",), "sh_aerial": ("close", "mid"),
+    "fullhop_aerial": ("close", "mid"), "zone": ("mid", "far"), "shine": ("close",),
+}
+MENUS = {
+    "approach": ("dash_in", "grab", "dtilt", "jab", "dash_attack", "sh_aerial", "fullhop_aerial", "shine", "wait"),
+    "space": ("wait", "retreat", "walk_in", "zone", "fullhop_aerial", "shield", "dash_attack"),
+    "pressure": ("dash_in", "sh_aerial", "smash", "jab", "grab", "dtilt", "shine", "fullhop_aerial"),
+    "defend": ("shield", "retreat", "wait", "grab"),
+    "zone": ("zone", "retreat", "wait", "dash_in"),
+}
+FACE_FIRST = ("grab", "dtilt", "jab", "smash", "zone", "shine")   # only when facing them
+BUSY = (set(range(0x2C, 0x41)) | set(AERIAL_LANDINGS) | {LANDING_SPECIAL, 0xE9, 0xEA, 0xEB}
+        | set(TECHS_NOW) | set(GETTING_UP) | set(LYING))
 
 
 def pad(buttons=0, sx=0, sy=0, cx=0, cy=0, r=0):
@@ -237,6 +257,7 @@ class Mario:
         self.skills = dict(skills or {})  # TECHS name -> how often she uses it (0..1)
         self.reads = {}   # gomi_reads: habit -> (the human's usual option, its share)
         self.knobs = dict(KNOBS)
+        self.chooser = None   # (bucket, menu) -> option; gomi_brain sets gomi_options.Bandit.choose
         self.reset()
 
     def reset(self):
@@ -459,6 +480,10 @@ class Mario:
     def shffl(self, aerial, drift=0):
         """Short hop, `aerial` (a c-stick or A pad) at once, fast fall at the top;
         step() adds the L-cancel."""
+        return (yield from self.short_hop(aerial, drift, fast_fall=True))
+
+    def short_hop(self, aerial, drift=0, fast_fall=False):
+        """Short hop, `aerial` at once, drift down (fast falling at the top if asked)."""
         s = yield pad(X)
         for _ in range(8):
             if s.air:
@@ -471,7 +496,7 @@ class Mario:
         for _ in range(50):
             if not s.air:
                 return
-            if not fell and s.vy < 0:
+            if fast_fall and not fell and s.vy < 0:
                 fell = True
                 s = yield pad(sy=-80)                    # fast fall: a fresh tap down
             else:
@@ -526,8 +551,6 @@ class Mario:
                 return chase
         if self.knobs["ledge_early"] and s.opp_offstage and plan != "defend":
             plan = "edgeguard"
-        if plan == "approach" and s.dist > 30 and self.knobs["patience"] and self.rng.random() < self.knobs["patience"]:
-            plan = "space"
         if plan == "edgeguard" and not s.opp_offstage:
             plan = "space"
         return getattr(self, "plan_" + plan, self.plan_space)(s)
@@ -641,38 +664,135 @@ class Mario:
         self.run(*[NEUTRAL] * recovery)
         return first
 
-    def plan_approach(self, s):
-        if s.dist > 22:
-            if s.dist < 70 and self.knows("wavedash"):
-                return self.start(self.wavedash(s.toward))
-            return self.dash(s.toward, 5)
-        turn = self.turn(s)
-        if turn:
-            return turn
-        if self.knows("shffl"):
-            return self.start(self.shffl(pad(cx=s.facing * 80)))   # SHFFL'd forward-air
-        habit = self.read("defense")
-        if habit == "jump" and self.rng.random() < 0.6:
-            return self.hit(pad(A, sy=50), 18)           # they jump when you come in: up-tilt
-        pick = self.rng.random()
-        if habit == "shield":
-            pick *= 0.4                                  # they shield: grab them
-        if pick < 0.35:
-            return self.hit(pad(Z), 25)                  # grab
-        if pick < 0.65:
-            return self.hit(pad(A, sy=-45), 12)          # down-tilt
-        self.run(NEUTRAL, pad(A), NEUTRAL, pad(A))
-        return self.hit(pad(A), 10)                      # jab, jab, jab
+    # ---- options: her menu, and each option's inputs ----------------------
 
-    def plan_fireball(self, s):
-        if s.dist < 30:
-            return self.retreat(s, 8)
-        if s.dist > 90:
-            return self.dash(s.toward, 5)
-        turn = self.turn(s)
-        if turn:
-            return turn
+    OPTIONS = frozenset(OPTION_RANGES) - {"shine"}   # what this character can do (Fox adds the shine)
+
+    def bucket(self, s):
+        """(range, their state, her spot): the situation her options are scored in."""
+        rng = "close" if s.dist < 20 else "mid" if s.dist < 45 else "far"
+        if s.opp_motion in SHIELDING:
+            them = "shield"
+        elif s.opp_motion in BUSY:
+            them = "busy"
+        elif s.opp_air:
+            them = "air"
+        else:
+            them = "grounded"
+        spot = "edge" if sign(s.x) == -s.toward and abs(s.x) > s.edge - 25 else "center"
+        return rng, them, spot
+
+    def menu(self, s, plan, bucket):
+        """The options `plan` offers here."""
+        rng, them, _ = bucket
+        near = self.knobs["space_dist"]
+        out = []
+        for name in MENUS[plan]:
+            if name not in self.OPTIONS or rng not in OPTION_RANGES[name]:
+                continue
+            if plan == "space" and (name == "dash_attack" and them != "busy"
+                                    or name == "walk_in" and s.dist < near + 20
+                                    or name == "retreat" and s.dist >= near):
+                continue
+            if plan == "zone" and name == "dash_in" and s.dist < 90:
+                continue
+            out.append(name)
+        return out
+
+    def pick_option(self, s, plan):
+        """Free to act in `plan`: face them if an option needs it, then try an option."""
+        bucket = self.bucket(s)
+        menu = self.menu(s, plan, bucket)
+        if not menu:
+            return self.dash(s.toward, 4) if s.dist >= 45 else NEUTRAL
+        if bucket[0] == "close":
+            turn = self.turn(s)
+            if turn:
+                return turn
+        name = self.chooser(bucket, menu) if self.chooser else self.rng.choice(menu)
+        self.option = name
+        return getattr(self, "opt_" + name)(s)
+
+    def plan_approach(self, s):
+        return self.pick_option(s, "approach")
+
+    def plan_space(self, s):
+        return self.pick_option(s, "space")
+
+    def plan_pressure(self, s):
+        return self.pick_option(s, "pressure")
+
+    def plan_defend(self, s):
+        return self.pick_option(s, "defend" if s.dist <= 30 else "space")
+
+    def plan_zone(self, s):
+        return self.pick_option(s, "zone")
+
+    plan_fireball = plan_zone
+    plan_lasers = plan_zone
+
+    def opt_dash_in(self, s):
+        if 25 < s.dist < 70 and self.knows("wavedash"):
+            return self.start(self.wavedash(s.toward))
+        return self.dash(s.toward, 6)
+
+    def opt_walk_in(self, s):
+        self.run(*[pad(sx=s.toward * 50)] * 9)
+        return pad(sx=s.toward * 50)
+
+    def opt_retreat(self, s):
+        return self.retreat(s, 6)
+
+    def opt_wait(self, s):
+        self.run(*[NEUTRAL] * 14)                        # stand there: bait a whiff
+        return NEUTRAL
+
+    def opt_shield(self, s):
+        if s.shield < 25:
+            return self.opt_retreat(s)
+        shield = [pad(R, r=140)] * 12
+        if s.dist < 18 and self.rng.random() < 0.5:
+            self.run(*shield[1:], pad(R | A, r=140), *[NEUTRAL] * 25)   # shield, grab out of it
+        else:
+            self.run(*shield[1:], *[NEUTRAL] * 3)
+        return shield[0]
+
+    def opt_grab(self, s):
+        if s.dist > 12:
+            self.run(pad(sx=s.toward * 80), pad(Z, sx=s.toward * 80), *[NEUTRAL] * 30)
+            return pad(sx=s.toward * 80)                 # dash in, grab
+        return self.hit(pad(Z), 25)
+
+    def opt_dtilt(self, s):
+        return self.hit(pad(A, sy=-45), 12)
+
+    def opt_jab(self, s):
+        self.run(NEUTRAL, pad(A), NEUTRAL, pad(A))
+        return self.hit(pad(A), 10)
+
+    def opt_smash(self, s):
+        if s.opp_air or s.dy > 8:
+            return self.hit(pad(cy=80), 30)              # up-smash
+        return self.hit(pad(cx=s.toward * 80), 35)       # forward smash
+
+    def opt_dash_attack(self, s):
+        self.run(*[pad(sx=s.toward * 80)] * 5, pad(A, sx=s.toward * 80), *[NEUTRAL] * 25)
+        return pad(sx=s.toward * 80)
+
+    def aerial_for(self, s):
+        """The aerial to throw at them: up-air above, else forward (or back) air toward them."""
+        return pad(cy=80) if s.dy > 12 else pad(cx=s.toward * 80)
+
+    def opt_sh_aerial(self, s):
+        hop = self.shffl if self.knows("shffl") else self.short_hop
+        return self.start(hop(self.aerial_for(s), drift=s.toward * 40))
+
+    def opt_fullhop_aerial(self, s):
+        return self.start(self.hop_aerial(s.toward))
+
+    def opt_zone(self, s):
         if self.cooldown:
+            self.run(*[NEUTRAL] * 4)
             return NEUTRAL
         self.cooldown = 35
         if self.rng.random() < 0.5:
@@ -680,47 +800,18 @@ class Mario:
         self.run(NEUTRAL, NEUTRAL, NEUTRAL, pad(B), *[NEUTRAL] * 28)
         return pad(X)                                    # short hop (X released in jumpsquat), fireball
 
-    def plan_space(self, s):
-        near = self.knobs["space_dist"]
-        if s.dist < near:
-            return self.retreat(s, 5)
-        if s.dist > near + 20:
-            self.run(*[pad(sx=s.toward * 50)] * 5)
-            return pad(sx=s.toward * 50)                 # walk in
-        if self.rng.random() < 0.12:
-            self.run(*[pad(sx=s.toward * 80)] * 6, pad(A, sx=s.toward * 80))
-            return self.hit(pad(sx=s.toward * 80), 25)   # dash attack
-        return NEUTRAL
-
-    def plan_pressure(self, s):
-        if s.dist > 20:
-            return self.dash(s.toward, 4)
-        turn = self.turn(s)
-        if turn:
-            return turn
-        if s.dy > 8:
-            return self.hit(pad(A, sy=50), 18)           # up-tilt
-        if s.opp_percent > 90 and self.rng.random() < 0.6:
-            return self.hit(pad(cx=s.toward * 80), 35)   # f-smash
-        if self.rng.random() < 0.5:
-            return self.hit(pad(cy=80), 30)              # up-smash
-        self.run(NEUTRAL, NEUTRAL, NEUTRAL, pad(cy=80), *[NEUTRAL] * 20)
-        return pad(X)                                    # short hop up-air
-
-    def plan_defend(self, s):
-        if s.dist > 30:
-            return self.plan_space(s)
-        if s.shield < 25:
-            if self.cornered(s):
-                return self.escape(s)
-            self.run(*[NEUTRAL] * 25)
-            return pad(R, sx=-s.toward * 80, r=140)      # roll away
-        shield = [pad(R, r=140)] * 10
-        if self.rng.random() < 0.5:
-            self.run(*shield[1:], pad(R | A, r=140), *[NEUTRAL] * 25)   # shield grab
-        else:
-            self.run(*shield[1:], *[NEUTRAL] * 3)
-        return shield[0]
+    def hop_aerial(self, direction):
+        """Full hop toward them, the aerial when they're in reach (or at the top), drift down."""
+        s = yield pad(X, sx=direction * 60)
+        swung = False
+        for i in range(70):
+            if i > 4 and not s.air:
+                return
+            if not swung and s.air and (s.dist < 16 and abs(s.dy) < 18 or s.vy < 0.3 and i > 8):
+                swung = True
+                s = yield self.aerial_for(s)
+                continue
+            s = yield pad(X if i < 4 else 0, sx=s.toward * 60)
 
     def plan_edgeguard(self, s):
         trap = self.ledge_trap(s) or self.jumped_at(s)

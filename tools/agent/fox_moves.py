@@ -70,42 +70,19 @@ class Fox(base.Mario):
             return pad(B, sy=80)                         # Firefox, aimed at the ledge
         return pad(sx=home * 80)
 
-    def plan_approach(self, s):
-        if s.dist > 22:
-            if s.dist < 70 and self.knows("wavedash"):
-                return self.start(self.wavedash(s.toward))
-            return self.dash(s.toward, 5)
-        turn = self.turn(s)
-        if turn:
-            return turn
-        if self.knows("shffl"):
-            aerial = pad(A) if self.rng.random() < 0.5 else pad(cy=-80)
-            return self.start(self.shffl(aerial, drift=s.toward * 40))   # SHFFL'd nair or down-air
-        habit = self.read("defense")
-        if habit == "jump" and self.rng.random() < 0.6:
-            return self.hit(pad(cy=80), 30)              # they jump when you come in: up-smash
-        pick = self.rng.random()
-        if habit == "shield":
-            pick *= 0.3                                  # they shield: grab them
-        if pick < 0.3:
-            return self.hit(pad(Z), 25)                  # grab
-        if pick < 0.55:
-            return self.hit(pad(A, sy=-45), 12)          # down-tilt
-        if pick < 0.85:
-            self.run(*shine([pad(cy=80), *[NEUTRAL] * 16])[1:])
-            return pad(B, sy=-80)                        # shine, jump out of it into an up-air
-        self.run(NEUTRAL, pad(A), NEUTRAL, pad(A))
-        return self.hit(pad(A), 10)                      # jab
+    # ---- his options (mario_moves has the menus and the rest) --------------
 
-    def plan_lasers(self, s):
-        if s.dist < 35:
-            return self.retreat(s, 8)
-        if s.dist > 110:
-            return self.dash(s.toward, 5)
-        turn = self.turn(s)
-        if turn:
-            return turn
+    OPTIONS = frozenset(base.OPTION_RANGES)       # everything, the shine included
+
+    def aerial_for(self, s):
+        """Up-air above them, down-air when they're below, else neutral-air."""
+        if s.dy > 12:
+            return pad(cy=80)
+        return pad(cy=-80) if self.rng.random() < 0.4 else pad(A)
+
+    def opt_zone(self, s):
         if self.cooldown:
+            self.run(*[NEUTRAL] * 4)
             return NEUTRAL
         self.cooldown = 22
         if self.rng.random() < 0.3:
@@ -113,45 +90,30 @@ class Fox(base.Mario):
         self.run(NEUTRAL, NEUTRAL, pad(B), NEUTRAL, NEUTRAL, *[pad(sy=-80)] * 6, *[NEUTRAL] * 6)
         return pad(X)                                    # short hop, laser, fast fall
 
-    plan_fireball = plan_lasers  # a plan name from Mario's list still means "zone them"
+    def opt_smash(self, s):
+        return self.hit(pad(cy=80), 30)                  # up-smash: his kill move
 
-    def plan_pressure(self, s):
-        if s.dist > 20:
-            return self.dash(s.toward, 4)
-        turn = self.turn(s)
-        if turn:
-            return turn
-        if s.dy > 8:
-            if self.rng.random() < 0.5:
-                self.run(NEUTRAL, NEUTRAL, pad(cy=80), *[NEUTRAL] * 18)
-                return pad(X)                            # short hop up-air
-            return self.hit(pad(cy=80), 30)              # up-smash
-        if s.opp_percent > 100 and self.rng.random() < 0.5:
-            return self.hit(pad(cy=80), 30)              # up-smash to kill
+    def opt_shine(self, s):
         if self.knows("multishine"):
             self.used["multishine"] += 1
             shines = multishine(self.rng.randint(2, 4))
             self.run(*shines[1:])
             return shines[0]
-        if self.knows("shffl"):
-            return self.start(self.shffl(pad(cy=80)))    # SHFFL'd up-air
+        if self.rng.random() < 0.5:
+            self.run(*shine([pad(cy=80), *[NEUTRAL] * 16])[1:])
+            return pad(B, sy=-80)                        # shine, jump out of it into an up-air
         self.run(*shine()[1:], *[NEUTRAL] * 4)
         return pad(B, sy=-80)                            # shine
 
-    def plan_defend(self, s):
-        if s.dist > 30:
-            return self.plan_space(s)
+    def opt_shield(self, s):
         if s.shield < 25:
-            if self.cornered(s):
-                return self.escape(s)
-            self.run(*[NEUTRAL] * 25)
-            return pad(R, sx=-s.toward * 80, r=140)      # roll away
+            return self.opt_retreat(s)
         shield = [pad(R, r=140)] * 10
         pick = self.rng.random()
-        if pick < 0.4:
-            self.run(*shield[1:], pad(R | A, r=140), *[NEUTRAL] * 25)       # shield grab
-        elif pick < 0.7:
-            self.run(*shield[1:], pad(X), NEUTRAL, pad(B, sy=-80), *[NEUTRAL] * 12)  # shine out of shield
+        if s.dist < 18 and pick < 0.4:
+            self.run(*shield[1:], pad(R | A, r=140), *[NEUTRAL] * 25)                   # shield grab
+        elif s.dist < 18 and pick < 0.7:
+            self.run(*shield[1:], pad(X), NEUTRAL, pad(B, sy=-80), *[NEUTRAL] * 12)    # shine out of shield
         else:
             self.run(*shield[1:], *[NEUTRAL] * 3)
         return shield[0]

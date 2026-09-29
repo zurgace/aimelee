@@ -71,6 +71,7 @@ class FoxTest(unittest.TestCase):
 
     def test_multishine(self):
         f = fm.Fox(seed=1, skills={"multishine": 1.0})
+        f.chooser = lambda bucket, menu: "shine"
         pads = run(f, fighter(x=0, ckind=FOX), fighter(x=8, percent=20), "pressure", 12)
         shine = [p.button == bridge.BUTTON_B and p.stick_y == -80 for p in pads]
         self.assertEqual(shine[:8], [True, False, False, False, True, False, False, False], "at least two")
