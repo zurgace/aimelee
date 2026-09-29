@@ -26,6 +26,11 @@ struct GameController {
   };
   uint16_t m_vid = 0;
   uint16_t m_pid = 0;
+  // A box controller (HayBox, B0XX, Frame1...): its firmware sends exact GameCube stick values on the
+  // scale Dolphin reads (full axis = 127), so its sticks are read that way, without deadzones. Set
+  // from the device name, or for every pad with MELEE_BOX_CONTROLLER=1 (XInput-mode boxes look like
+  // an Xbox pad).
+  bool m_boxStick = false;
   std::array<PADButtonMapping, PAD_BUTTON_COUNT> m_buttonMapping{};
   std::array<PADAxisMapping, PAD_AXIS_COUNT> m_axisMapping{};
   uint16_t m_rumbleIntensityLow = 32767;

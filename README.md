@@ -204,6 +204,9 @@ Delete that folder to start her over. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point h
 - **"cannot find Phillip's agent":** check that Phillip was downloaded next to AI-Melee:
   - Linux: `~/src/phillip`;
   - Windows: `AI-Melee\phillip-master`.
+- **Can't dash on a box controller** (HayBox, B0XX, Frame1): these send the stick values Dolphin reads, and the game has to read them the same way.
+  - Boxes in DInput mode are recognised by name.
+  - One in XInput mode (most Pico-based HayBox boxes) looks like an Xbox pad. On Linux tick **I play on a box controller** in the launcher. On Windows run `& '.\Play AI-Melee.bat' --box-controller on` once in PowerShell; it's remembered.
 - **The launcher doesn't open (Linux):** install Tk with `sudo pacman -S tk`.
 - **The game doesn't start, or shows a black window:** update your graphics driver.
   - On Windows, double-click `RUN-AND-LOG.bat` and read `melee-pc.log`.

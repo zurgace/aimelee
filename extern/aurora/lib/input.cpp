@@ -9,6 +9,7 @@
 #include <SDL3/SDL.h>
 #include <absl/container/flat_hash_map.h>
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <filesystem>
 #include <string>
@@ -329,6 +330,29 @@ Sint32 get_instance_for_player(uint32_t player) noexcept {
   return {};
 }
 
+// Box controllers (all-button controllers for Melee) send the exact stick coordinates Dolphin
+// profiles expect. DInput-mode boxes name themselves; an XInput-mode one is an "Xbox 360
+// Controller" like any other, so MELEE_BOX_CONTROLLER=1 marks every pad as a box.
+static bool is_box_controller(const char* name) noexcept {
+  if (const char* env = SDL_getenv("MELEE_BOX_CONTROLLER"); env != nullptr && env[0] != '\0') {
+    if (SDL_strcmp(env, "0") == 0 || SDL_strcasecmp(env, "off") == 0) {
+      return false;
+    }
+    return true;
+  }
+  if (name == nullptr) {
+    return false;
+  }
+  std::string lower(name);
+  std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  for (const char* box : {"haybox", "b0xx", "arduino leonardo", "frame1"}) {
+    if (lower.find(box) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 SDL_JoystickID add_controller(SDL_JoystickID which) noexcept {
   auto* ctrl = SDL_OpenGamepad(which);
   if (ctrl != nullptr) {
@@ -343,6 +367,7 @@ SDL_JoystickID add_controller(SDL_JoystickID which) noexcept {
       return -1;
     }
     controller.m_isGameCube = controller.m_vid == 0x057E && controller.m_pid == 0x0337;
+    controller.m_boxStick = is_box_controller(SDL_GetGamepadName(ctrl));
     if (controller.m_isGameCube ||
         (SDL_GetGamepadType(ctrl) == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO && controller.m_pid == 0x2073)) {
       controller.m_deadZones.emulateTriggers = false;
@@ -351,9 +376,10 @@ SDL_JoystickID add_controller(SDL_JoystickID which) noexcept {
     controller.m_hasRumble = SDL_GetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, true);
     controller.m_hasRgbLed = SDL_GetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_RGB_LED_BOOLEAN, false);
     SDL_JoystickID instance = SDL_GetJoystickID(SDL_GetGamepadJoystick(ctrl));
-    Log.info("Added controller '{}' (instance {}, vid {:04x}, pid {:04x}, type {})",
+    Log.info("Added controller '{}' (instance {}, vid {:04x}, pid {:04x}, type {}){}",
              SDL_GetGamepadName(ctrl) != nullptr ? SDL_GetGamepadName(ctrl) : "unknown", instance, controller.m_vid,
-             controller.m_pid, static_cast<int>(SDL_GetGamepadType(ctrl)));
+             controller.m_pid, static_cast<int>(SDL_GetGamepadType(ctrl)),
+             controller.m_boxStick ? "; box controller: sticks read as Dolphin does" : "");
     g_GameControllers[instance] = controller;
     apply_port_preferences();
     return instance;

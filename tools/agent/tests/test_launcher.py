@@ -26,21 +26,24 @@ class OptionsTest(unittest.TestCase):
             disc.write_bytes(b"")
             opts = launcher.load_options({}, environ={"MELEE_DISC": str(disc)})
             self.assertEqual(opts, {"brain": "auto", "p2_pick": True, "legal_stages": True, "gomi": False,
-                                    "disc": str(disc)})
+                                    "box": False, "disc": str(disc)})
             self.assertEqual(launcher.play_args(opts), ["--iso", str(disc), "--brain", "auto",
-                                                        "--p2-pick", "on", "--random-stages", "legal"])
+                                                        "--p2-pick", "on", "--random-stages", "legal",
+                                                        "--box-controller", "off"])
             opts.update(brain="classic", p2_pick=False, legal_stages=False)
             settings = launcher.store_options({"other": 1}, opts)
             self.assertEqual(settings["launcher"], {"brain": "classic", "p2_pick": False, "legal_stages": False,
-                                                 "gomi": False})
+                                                 "gomi": False, "box": False})
             self.assertEqual(settings["disc"], str(disc.resolve()))  # the key play.py reads too
             again = launcher.load_options(settings, environ={})
             self.assertEqual(launcher.play_args(again)[2:], ["--brain", "classic", "--p2-pick", "off",
-                                                             "--random-stages", "all"])
+                                                             "--random-stages", "all", "--box-controller", "off"])
 
     def test_gomi_option(self):
         opts = launcher.load_options({"launcher": {"gomi": True}}, environ={})
-        self.assertEqual(launcher.play_args(opts)[-1], "--gomi")
+        self.assertIn("--gomi", launcher.play_args(opts))
+        opts = launcher.load_options({"launcher": {"box": True}}, environ={})
+        self.assertEqual(launcher.play_args(opts)[-2:], ["--box-controller", "on"])
 
     def test_missing_disc_and_bad_brain(self):
         opts = launcher.load_options({"disc": "/nonexistent.iso", "launcher": {"brain": "x"}}, environ={})

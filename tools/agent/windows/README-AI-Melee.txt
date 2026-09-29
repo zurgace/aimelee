@@ -68,6 +68,8 @@ Troubleshooting
 - The game itself will not start or shows a black screen: update your GPU
   driver, then run RUN-AND-LOG.bat and read melee-pc.log.
 - Wrong disc remembered: delete ai-melee\settings.json.
+- A box controller (HayBox, B0XX, Frame1) can't dash: run
+  "Play AI-Melee.bat" --box-controller on   once; it's remembered.
 
 Updating
 --------

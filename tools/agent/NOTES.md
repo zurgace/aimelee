@@ -240,6 +240,7 @@ melee-pc's other variables are in its own README.
 | `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
 | `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
 | `MELEE_AGENT_CSS_CHARS=<ckinds>` | With the agent bridge on: comma-separated character kinds (CKind, e.g. `2,20` for Fox and Falco). Opening the agent port's door from closed to HMN on the character select places its token on a random unlocked one of them. `play.py` sets it to the characters an AI will play, Sheik aside, unless run with `--p2-pick off`. |
+| `MELEE_BOX_CONTROLLER=1` | Read every controller's sticks as Dolphin does: full axis = 127 GameCube units, rounded down, no deadzone (`extern/aurora`, `box_axis`). Box controllers (HayBox, B0XX, Frame1) send the values a Dolphin profile expects (HayBox: 128 +- 80 of 255 for a full press); melee-pc's +-80 scale for analog pads read that as 50, short of the 64 a dash needs. DInput boxes ("Arduino Leonardo", "HayBox", "B0XX", "Frame1" in the name) get it automatically; `0`/`off` turns it off for all. `play.py --box-controller on` sets it and remembers it. Reported by Yomiki (HayBox, Windows 10). |
 
 ## Gomihyu plays Mario
 

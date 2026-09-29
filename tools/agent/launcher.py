@@ -42,7 +42,7 @@ BRAINS = [
     ("slippi", "Newer Phillip only (slippi-ai)"),
     ("classic", "2017 agents only"),
 ]
-DEFAULTS = {"brain": "auto", "p2_pick": True, "legal_stages": True, "gomi": False}
+DEFAULTS = {"brain": "auto", "p2_pick": True, "legal_stages": True, "gomi": False, "box": False}
 
 
 # ---------------------------------------------------------------- pure parts
@@ -74,6 +74,7 @@ def play_args(opts):
             "--random-stages", "legal" if opts["legal_stages"] else "all"]
     if opts.get("gomi"):
         args.append("--gomi")
+    args += ["--box-controller", "on" if opts.get("box") else "off"]
     if opts.get("disc"):
         args = ["--iso", str(opts["disc"])] + args
     return args
@@ -309,6 +310,9 @@ class Launcher:
                         variable=self.p2_pick).pack(anchor="w")
         self.legal = tk.BooleanVar(value=self.opts["legal_stages"])
         ttk.Checkbutton(game, text="Random stage picks tournament stages only", variable=self.legal).pack(anchor="w")
+        self.box = tk.BooleanVar(value=self.opts["box"])
+        ttk.Checkbutton(game, text="I play on a box controller (HayBox, B0XX, Frame1)",
+                        variable=self.box).pack(anchor="w")
         disc = ttk.Frame(game)
         disc.pack(fill="x", pady=(6, 0))
         ttk.Label(disc, text="Disc:").pack(side="left")
@@ -365,7 +369,7 @@ class Launcher:
 
     def save(self):
         self.opts.update(brain=self.brain.get(), p2_pick=self.p2_pick.get(), legal_stages=self.legal.get(),
-                         gomi=self.gomi.get())
+                         gomi=self.gomi.get(), box=self.box.get())
         play.save_settings(store_options(self.settings, self.opts))
 
     # ---- running play.py ------------------------------------------------

@@ -7,6 +7,7 @@
 #include <SDL3/SDL_mouse.h>
 
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <ranges>
@@ -653,6 +654,14 @@ static Sint16 _get_axis_value(const aurora::input::GameController* controller, /
   return 0;
 }
 
+// A box controller's axis as Dolphin reads it: full axis = 127 GameCube units, rounded down, no
+// deadzone. The firmware's values (HayBox: 128 +- 80 of 255 for a full press, exact modifier
+// coordinates in between) only land on the intended numbers this way; the +-80 scale used for
+// analog pads read a box's full press as 50, short of a dash.
+static int box_axis(Sint16 value) {
+  return std::clamp(static_cast<int>(std::floor(value * 127.0 / 32768.0)), -128, 127);
+}
+
 static void neutralize_status(PADStatus& status) {
   status.button = 0;
   status.stickX = 0;
@@ -852,7 +861,10 @@ u32 PADRead(PADStatus* status) {
       // direction so a button binding and an analog binding have the same range.
       auto xl = static_cast<Sint16>(std::max<int>(0, xlPos) - std::max<int>(0, xlNeg));
       auto yl = static_cast<Sint16>(std::max<int>(0, ylPos) - std::max<int>(0, ylNeg));
-      if (controller->m_deadZones.useDeadzones) {
+      if (controller->m_boxStick) {
+        xl = static_cast<Sint16>(box_axis(xl));
+        yl = static_cast<Sint16>(box_axis(yl));
+      } else if (controller->m_deadZones.useDeadzones) {
         if (std::abs(xl) > controller->m_deadZones.stickDeadZone) {
           xl = std::clamp((xl * 80) / 32768, -80, 80);
         } else {
@@ -878,7 +890,10 @@ u32 PADRead(PADStatus* status) {
 
       auto xr = static_cast<Sint16>(std::max<int>(0, xrPos) - std::max<int>(0, xrNeg));
       auto yr = static_cast<Sint16>(std::max<int>(0, yrPos) - std::max<int>(0, yrNeg));
-      if (controller->m_deadZones.useDeadzones) {
+      if (controller->m_boxStick) {
+        xr = static_cast<Sint16>(box_axis(xr));
+        yr = static_cast<Sint16>(box_axis(yr));
+      } else if (controller->m_deadZones.useDeadzones) {
         if (std::abs(xr) > controller->m_deadZones.substickDeadZone) {
           xr = std::clamp((xr * 72) / 32768, -72, 72);
         } else {

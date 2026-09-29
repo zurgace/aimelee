@@ -51,6 +51,12 @@ Options:
   --sync MODE        lockstep (default) or async
   --timeout-ms MS    lockstep wait per tick (default 4)
   --frame-lag K      hold each pad K extra ticks (emulate a slower pipe)
+  --box-controller on|off
+                     on: read every controller's sticks as Dolphin does, for a
+                     box controller (HayBox, B0XX, Frame1) whose firmware sends
+                     Dolphin's values; without it a box in XInput mode can't
+                     dash. DInput-mode boxes are recognised by name anyway.
+                     Remembered (settings.json) until you say off.
   --random-stages S  legal (default): Random on the stage select picks one of
                      Battlefield, Final Destination, Pokemon Stadium, Yoshi's
                      Story, Dream Land N64 or Fountain of Dreams; all: the
@@ -385,6 +391,8 @@ def main():
     ap.add_argument("--seed", type=int)
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--random-stages", choices=["legal", "all"], default="legal")
+    ap.add_argument("--box-controller", choices=["on", "off"],
+                    help="read sticks as Dolphin does, for a box controller (remembered)")
     ap.add_argument("--gomi", action="store_true",
                     help="Gomihyu, a language model through Ollama, takes over P2 as Mario or Fox")
     ap.add_argument("--p2-pick", choices=["on", "off"], default="on",
@@ -404,6 +412,9 @@ def main():
     if args.delay is not None and args.agent is None:
         fail("--delay applies to one agent: give --agent with it")
     settings = load_settings()
+    if args.box_controller is not None:
+        settings["box_controller"] = args.box_controller == "on"
+        save_settings(settings)
     melee = find_melee(args.melee)
     if args.gomi and args.agent is not None:
         fail("--gomi takes over P2 by itself: leave out --agent")
@@ -453,6 +464,9 @@ def main():
     # LbRb.dat, which then reads as zeros and stops the game (NOTES.md).
     env.setdefault("MELEE_PREWARM", "0")
     env["MELEE_AGENT_RANDOM_STAGES"] = args.random_stages
+    if settings.get("box_controller"):
+        env.setdefault("MELEE_BOX_CONTROLLER", "1")
+        print("play: box controller: sticks read as Dolphin does (--box-controller off to undo)", flush=True)
     if args.p2_pick == "on" and ai_chars:
         env["MELEE_AGENT_CSS_CHARS"] = ai_chars
     if args.quick:
