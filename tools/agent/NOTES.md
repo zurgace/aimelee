@@ -240,3 +240,51 @@ melee-pc's other variables are in its own README.
 | `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
 | `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
 | `MELEE_AGENT_CSS_CHARS=<ckinds>` | With the agent bridge on: comma-separated character kinds (CKind, e.g. `2,20` for Fox and Falco). Opening the agent port's door from closed to HMN on the character select places its token on a random unlocked one of them. `play.py` sets it to the characters an AI will play, Sheik aside, unless run with `--p2-pick off`. |
+
+## Gomihyu plays Mario
+
+Gomihyu (github.com/zurgace/gomihyu) is the owner's Discord persona: Gemma
+4 E4B through Ollama. Asked to put her in the game as Mario, "improving from
+each game", the options were weighed as follows:
+
+- **She can't press the buttons.** An E4B reply takes roughly 0.3-1 s on an
+  RTX 2070, and Melee wants an input every 16.7 ms.
+- **A trained Mario network** (slippi-ai imitation on public Mario replays,
+  then RL, then fine-tuning after each game) would play far better. It
+  needs a replay dataset, GPU hours to days, and it would still barely move
+  per game. It remains the upgrade path.
+- **Chosen: she calls the plays.**
+  - `gomi_brain.py` runs a planner thread that sends her the situation
+    about twice a second (`GOMI_PLAN_EVERY`). She answers in JSON
+    (Ollama `format` schema, `think: false`) with one of six plans and an
+    optional taunt.
+  - `mario_moves.py` turns the current plan into one pad per frame from
+    the bridge's fighter state.
+  - Recovery (double jump, then Up-B toward the ledge), teching, getups,
+    ledge options, grab mashing and survival DI never wait for her.
+  - The game thread only reads her latest plan, so a slow or dead Ollama
+    never costs a late input. The loop test checks this: every fight tick
+    is answered.
+- **How she learns.**
+  - Per frame, damage dealt and taken, KOs and deaths are attributed to the
+    plan in effect.
+  - `scoreboard.json` sums them across matches, per opponent character.
+    The score is net percent per minute, with a KO counted as 40, shrunk
+    toward 0 while a plan has little time.
+  - After each match she gets the summary and the scoreboard, and rewrites
+    `lessons.md` (at most 8).
+  - The next match's prompt carries both.
+  - Without Ollama, a rule-based chooser weighted by the scoreboard plays.
+    So the numbers improve her even with no model.
+- **Wiring.**
+  - `agent.Runner` (roster mode) treats Mario as covered when `--gomi` is
+    on.
+  - `slippi_agent` gives Mario to Gomi before slippi-ai.
+  - `play.py --gomi` checks Ollama once and adds Mario to
+    `MELEE_AGENT_CSS_CHARS`.
+  - The launcher has a checkbox.
+- **Not verified in a real match yet.** The container has no game or GPU.
+  Unit tests cover the move library on synthetic states, the brain against a
+  fake Ollama, and both runners' loops against the fake games. Timings
+  (hitlag, jumpsquat, move lengths, ledge behaviour) are expected to need a
+  tuning round from real play.

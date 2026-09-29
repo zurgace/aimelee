@@ -12,6 +12,7 @@ Play Super Smash Bros. Melee on your PC against **Phillip**, the Melee AI. The g
 - [Install on Linux (CachyOS)](#install-on-linux-cachyos)
 - [Install on Windows 10/11](#install-on-windows-1011)
 - [Playing](#playing)
+- [Gomihyu plays Mario (optional)](#gomihyu-plays-mario-optional)
 - [Troubleshooting](#troubleshooting)
 - [For the maintainer: publishing the Windows download](#for-the-maintainer-publishing-the-windows-download)
 - [License](#license)
@@ -157,10 +158,38 @@ A gamepad on port 1 works too, and so does an official GameCube adapter. Click t
   - **Newer Phillip only**;
   - **2017 agents only**.
 - **Random character for P2**, and **tournament-only random stages**. Both are on by default.
+- **Gomihyu plays Mario**: see [below](#gomihyu-plays-mario-optional). Off by default.
 
 The launcher remembers your choices. While you play, it shows **AI ready**, and who plays P2 each match. **Show log** has the details, which are also saved in `tools/agent/ai-melee.log`.
 
 On Windows, `Play AI-Melee.bat` passes options to `play.py`, for example `& '.\Play AI-Melee.bat' --brain classic` in PowerShell.
+
+## Gomihyu plays Mario (optional)
+
+[Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she plays P2 whenever P2 is Mario.
+- **During a match:** twice a second she picks Mario's game plan: approach, fireballs, spacing, pressure, defending, or edgeguarding. A move library plays that plan frame by frame; she's far too slow to press the buttons herself. Recovering, teching and getting up happen without her.
+- **After each match:** she reads how it went, what each plan dealt and took, and how she lost her stocks. Then she rewrites her lessons for the next match.
+- **Across matches:** every plan's results are tallied per opponent, and she sees that scoreboard too. So she changes her game from match to match, but don't expect a pro Mario: she stays a quirky, beatable one.
+
+**Setting up** (Linux; she needs about 3.5 GB of graphics memory next to the game):
+1. Install Ollama and her model:
+
+   ```sh
+   curl -fsSL https://ollama.com/install.sh | sh
+   ollama pull gemma4:e4b
+   ```
+
+2. In the launcher, tick **Gomihyu plays Mario** and press **Play**. From a terminal, use `play.py --gomi` instead.
+3. Pick Mario for P2. The launcher shows her taunts, the result and her line after each match. **Show log** shows each plan she picks.
+
+If Ollama isn't running, Mario still plays, on her rule-based fallback. That fallback also learns from the scoreboard.
+
+**Her memory** lives in `tools/agent/gomi/`:
+- `lessons.md` has her lessons;
+- `scoreboard.json` has every plan's results;
+- `matches.jsonl` has one line per match.
+
+Delete that folder to start her over. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server.
 
 ## Troubleshooting
 
