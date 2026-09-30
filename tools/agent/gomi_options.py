@@ -38,7 +38,8 @@ THEM = {"grounded": "they're on the ground", "air": "they're in the air", "shiel
 NAMES = {"dash_in": "dash in", "walk_in": "walk in", "retreat": "back off", "wait": "wait for it",
          "shield": "shield", "grab": "grab", "dtilt": "down-tilt", "jab": "jab", "smash": "smash attack",
          "dash_attack": "dash attack", "sh_aerial": "short-hop aerial", "fullhop_aerial": "full-hop aerial",
-         "zone": "projectile", "shine": "shine", "crouch_shine": "crouch, then shine"}
+         "zone": "projectile", "shine": "shine", "crouch_shine": "crouch, then shine",
+         "copy": "your teachers' moves"}
 
 
 def key(bucket):
@@ -76,6 +77,7 @@ class Bandit:
         self.trials = []                          # open tries: [bucket key, option, frames, score]
         self.tried = Counter()                    # option -> tries this match
         self.started = Counter()                  # (bucket key, option) -> tries this match
+        self.scored = {}                          # option -> [tries, total] scored this match
 
     def guess(self, k, option):
         """(mean, how many tries it's worth) before her own tries against this opponent."""
@@ -152,6 +154,9 @@ class Bandit:
 
     def record(self, trial):
         k, option, _, score = trial
+        row = self.scored.setdefault(option, [0, 0.0])
+        row[0] += 1
+        row[1] += score
         for table in (self.mine, self.data["all"]):
             row = table.setdefault(k, {}).setdefault(option, [0, 0.0, 0.0])
             row[0] += 1
@@ -182,6 +187,11 @@ class Bandit:
             out.append(f"{describe(k)}: {NAMES.get(best[1], best[1])} {best[0]:+.0f} a try ({best[2]} tries); "
                        f"{NAMES.get(worst[1], worst[1])} {worst[0]:+.0f} ({worst[2]} tries)")
         return out
+
+    def this_match(self, option):
+        """(tries scored, mean score) of an option this match."""
+        n, total = self.scored.get(option, (0, 0.0))
+        return n, (total / n if n else 0.0)
 
     def variety(self):
         """This match: how many different options she tried, and the most used."""

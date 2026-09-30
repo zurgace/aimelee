@@ -130,6 +130,60 @@ class StoreTest(unittest.TestCase):
         self.assertFalse(store.has(sit(x=0.0, opp_x=10.0)), "never another range")
 
 
+class PlayTest(unittest.TestCase):
+    def falco(self, pads, share=1.0):
+        store = gc.Clips(Path(tempfile.mkdtemp()) / "c.json")
+        for _ in range(gc.MIN_POOL):
+            store.add(gc.key_of(sit(x=0.0, opp_x=-30.0, facing=-1)), {"o": 0.0, "k": "move",
+                                                                        "p": gc.encode(pads)}, "A#1")
+        f = falco_moves.Falco(seed=3)
+        f.clips, f.copy_share = store, share
+        return f
+
+    def test_plays_the_clip_frame_for_frame_turned_toward_them(self):
+        pads = [[0, 80, 0, 0, 0, 0]] * 3 + [[bridge.BUTTON_X, 0, 0, 0, 0, 0]] + [[0, -30, -80, 0, 80, 0]] * 8
+        f = self.falco(pads)
+        s = sit(x=0.0, opp_x=-30.0, facing=-1)                 # they're to her left
+        got = [f.step(s, "space") for _ in range(len(pads))]
+        self.assertEqual(f.mode, "copy")
+        want = [gc.as_pad(p, -1) for p in pads]
+        self.assertEqual([(p.button, p.stick_x, p.stick_y, p.cstick_x, p.cstick_y) for p in got],
+                         [(p.button, p.stick_x, p.stick_y, p.cstick_x, p.cstick_y) for p in want])
+        self.assertEqual(got[0].stick_x, -80, "toward them")
+        self.assertEqual(f.used["copy"], 1)
+
+    def test_never_off_the_ledge_and_stops_offstage(self):
+        f = self.falco([[0, -80, 0, 0, 0, 0]] * 12)                # "away from them"
+        s = sit(x=-83.0, opp_x=-50.0, facing=1, edge=85.566)      # away is off the left ledge
+        pad = f.play_clip(s, [[0, -80, 0, 0, 0, 0]] * 12)
+        self.assertEqual(next(pad).stick_x, 0)
+        clip = f.play_clip(sit(x=0.0, opp_x=30.0), [[0, 80, 0, 0, 0, 0]] * 12)
+        next(clip)
+        with self.assertRaises(StopIteration):
+            clip.send(sit(x=-95.0, opp_x=30.0, air=True))
+
+    def test_only_with_clips(self):
+        s = sit(x=0.0, opp_x=-30.0, facing=-1)
+        f = falco_moves.Falco(seed=1)
+        self.assertNotIn("copy", f.menu(s, "space", f.bucket(s)))
+        f = self.falco([[0, 80, 0, 0, 0, 0]] * 12)
+        self.assertIn("copy", f.menu(s, "space", f.bucket(s)))
+        m = mm.Mario(seed=1)
+        self.assertNotIn("copy", m.menu(s, "space", m.bucket(s)))
+
+    def test_her_own_options_the_rest_of_the_time(self):
+        f = self.falco([[0, 80, 0, 0, 0, 0]] * 12, share=0.6)
+        s = sit(x=0.0, opp_x=-30.0, facing=-1)
+        picks = []
+        f.chooser = lambda bucket, menu: menu[0] if menu == ["copy"] else "wait"
+        for _ in range(200):
+            f.reset()
+            f.pick_option(s, "space")
+            picks.append(f.option)
+        share = picks.count("copy") / len(picks)
+        self.assertTrue(0.45 < share < 0.75, share)
+
+
 class LearnTest(unittest.TestCase):
     def test_clips_for_replays_read_before(self):
         tmp = Path(tempfile.mkdtemp())

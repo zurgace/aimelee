@@ -33,7 +33,8 @@ CHECK_FRAMES = 4
 MIN_TRIES = 5
 EATEN_SHARE = 0.5
 PRESSES = bridge.BUTTON_A | bridge.BUTTON_B | bridge.BUTTON_X | bridge.BUTTON_Z
-NOT_CHECKED = ("tech", "mash", "hit")      # modes whose presses aren't meant to change her state at once
+# Modes whose presses aren't meant to change her state at once, or (a clip's) were timed by a human.
+NOT_CHECKED = ("tech", "mash", "hit", "copy")
 LANDING = 0x2A                             # normal landing lag
 
 # States Melee is known to ignore presses in: waited out from the first match.

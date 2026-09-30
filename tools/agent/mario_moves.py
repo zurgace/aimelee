@@ -113,15 +113,18 @@ OPTION_RANGES = {
     "wait": ("close", "mid", "far"), "shield": ("close", "mid"), "grab": ("close",), "dtilt": ("close",),
     "jab": ("close",), "smash": ("close",), "dash_attack": ("mid",), "sh_aerial": ("close", "mid"),
     "fullhop_aerial": ("close", "mid"), "zone": ("mid", "far"), "shine": ("close",),
-    "crouch_shine": ("close", "mid"),
+    "crouch_shine": ("close", "mid"), "copy": RANGES,
 }
+# "copy": a clip of her teachers' own inputs from a situation like hers (gomi_clips; only when she has them)
 MENUS = {
-    "approach": ("dash_in", "grab", "dtilt", "jab", "dash_attack", "sh_aerial", "fullhop_aerial", "shine", "wait"),
+    "approach": ("dash_in", "grab", "dtilt", "jab", "dash_attack", "sh_aerial", "fullhop_aerial", "shine", "wait",
+                 "copy"),
     "space": ("wait", "retreat", "walk_in", "zone", "fullhop_aerial", "shield", "dash_attack", "shine",
-              "crouch_shine"),
-    "pressure": ("dash_in", "sh_aerial", "smash", "jab", "grab", "dtilt", "shine", "fullhop_aerial", "crouch_shine"),
-    "defend": ("shield", "retreat", "wait", "grab", "shine", "crouch_shine"),
-    "zone": ("zone", "retreat", "wait", "dash_in", "shine"),
+              "crouch_shine", "copy"),
+    "pressure": ("dash_in", "sh_aerial", "smash", "jab", "grab", "dtilt", "shine", "fullhop_aerial", "crouch_shine",
+                 "copy"),
+    "defend": ("shield", "retreat", "wait", "grab", "shine", "crouch_shine", "copy"),
+    "zone": ("zone", "retreat", "wait", "dash_in", "shine", "copy"),
 }
 FACE_FIRST = ("grab", "dtilt", "jab", "smash", "zone", "shine")   # only when facing them
 BUSY = (set(range(0x2C, 0x41)) | set(AERIAL_LANDINGS) | {LANDING_SPECIAL, 0xE9, 0xEA, 0xEB}
@@ -264,6 +267,8 @@ class Mario:
         self.reads = {}   # gomi_reads: habit -> (the human's usual option, its share)
         self.knobs = dict(KNOBS)
         self.chooser = None   # (bucket, menu) -> option; gomi_brain sets gomi_options.Bandit.choose
+        self.clips = None     # gomi_clips.Clips: her teachers' clips, when replays taught her this character
+        self.copy_share = 0.0  # how often she plays one of them when she can (else the chooser decides)
         import gomi_timing    # here, not at the top: gomi_timing reads this module's constants
         self.timing = gomi_timing.Timing()   # eaten inputs; gomi_brain gives it her saved counts
         self.reset()
@@ -314,7 +319,7 @@ class Mario:
         """The pad for this frame. `s` is a Situation, `plan` one of PLANS."""
         p = self.choose(s, plan)
         lcancel = self.lcancel_now(s)
-        if lcancel:
+        if lcancel and self.mode != "copy":         # a clip has its own
             p = replace(p, button=p.button | R, trigger_r=140)
         self.timing.observe(s, p, lcancel=lcancel, mode=self.mode)
         self.since_press = 0 if p.button & ~R or p.cstick_x or p.cstick_y else self.since_press + 1
@@ -722,6 +727,8 @@ class Mario:
                 continue
             if plan == "zone" and name == "dash_in" and s.dist < 90:
                 continue
+            if name == "copy" and not (self.clips and self.clips.has(s)):
+                continue
             out.append(name)
         return out
 
@@ -735,8 +742,11 @@ class Mario:
             turn = self.turn(s)
             if turn:
                 return turn
+        if "copy" in menu and self.rng.random() < self.copy_share:
+            menu = ["copy"]                     # play like her teachers (still scored as a try)
         name = self.chooser(bucket, menu) if self.chooser else self.rng.choice(menu)
         self.option = name
+        self.option_plan = plan
         return getattr(self, "opt_" + name)(s)
 
     def plan_approach(self, s):
@@ -756,6 +766,28 @@ class Mario:
 
     plan_fireball = plan_zone
     plan_lasers = plan_zone
+
+    def opt_copy(self, s):
+        """One of her teachers' clips from a situation like this, frame for frame."""
+        pads = self.clips.pick(s, self.option_plan, self.rng)
+        if not pads:
+            return NEUTRAL
+        self.used["copy"] += 1
+        self.mode = "copy"
+        return self.start(self.play_clip(s, pads))
+
+    def play_clip(self, s, pads):
+        """A clip's pads, turned toward her opponent; it stops if she ends up offstage (her
+        recovery takes over), and never pushes her off the ledge."""
+        import gomi_clips     # here, not at the top: gomi_clips reads this module's constants
+        d = s.toward
+        for i, stored in enumerate(pads):
+            if i and s.air and s.offstage:
+                return
+            p = gomi_clips.as_pad(stored, d)
+            if abs(s.x) > s.edge - 4 and sign(p.stick_x) == sign(s.x):
+                p = replace(p, stick_x=0)
+            s = yield p
 
     def opt_dash_in(self, s):
         if 25 < s.dist < 70 and self.knows("wavedash"):
