@@ -35,7 +35,9 @@ and rival.json, what she has noticed about the human (for both characters).
 Her Discord bot (gomihyu) posts what she says: a file per match and per
 in-match taunt, in the outbox both programs know,
 ~/.local/share/gomihyu/melee-outbox ($XDG_DATA_HOME; $GOMI_OUTBOX to move
-it). The newest 20 files are kept, in case the bot isn't running.
+it). It holds them and posts once per session: when the game closes (a
+"session_end" file, from end_session) or when the player tells her "GG".
+The newest 200 files are kept, in case the bot isn't running.
 
 Settings: GOMI_OLLAMA_URL (default http://localhost:11434/api/chat),
 GOMI_MODEL (default gemma4:e4b), GOMI_PLAN_EVERY (seconds, default 0.5),
@@ -71,11 +73,12 @@ DEFAULT_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_NUM_CTX = 8192  # gomihyu's bot's OLLAMA_NUM_CTX default: the same model, the same context
 MAX_LESSONS = 8
-OUTBOX_KEEP = 20
+OUTBOX_KEEP = 200       # her bot holds a session's matches until it's over: room for a long one
 STAGE_NAMES = {0x1F: "Battlefield", 0x20: "Final Destination", 0x03: "Pokemon Stadium", 0x08: "Yoshi's Story",
                0x1C: "Dream Land N64", 0x02: "Fountain of Dreams"}
 SAY_EVERY_S = 30.0
-WAITING_WARN_S = 120.0  # outbox files older than this at match start: is her bot running?
+WAITING_WARN_S = 120.0  # a taunt or session end older than this at match start: is her bot running?
+HELD_WARN_S = 40 * 60   # a match: her bot holds those for the session, but not this long
 FAILURES_BEFORE_RULES = 3
 
 
@@ -250,6 +253,8 @@ class GomiBrain:
         self.active = False
         self.llm_down = None   # why Ollama can't play, once known
         self.said_at = 0.0
+        self.session_matches = 0   # matches ended since the last session_end
+        self.session_lock = threading.Lock()
 
     def migrate(self):
         """Her files from when she only played Mario go in mario/."""
@@ -342,9 +347,21 @@ class GomiBrain:
         return priors
 
     def warn_if_waiting(self):
-        """Posts nobody took: her Discord bot isn't running, or looks elsewhere."""
+        """Posts nobody took: her Discord bot isn't running, or looks elsewhere. It takes taunts and
+        session ends at once; matches it holds until the session is over, so only old ones count."""
         now = time.time()
-        waiting = [p for p in self.outbox.glob("*.json") if now - p.stat().st_mtime > WAITING_WARN_S]
+        waiting = []
+        for p in self.outbox.glob("*.json"):
+            age = now - p.stat().st_mtime
+            if age > HELD_WARN_S:
+                waiting.append(p)
+            elif age > WAITING_WARN_S:
+                try:
+                    kind = json.loads(p.read_text()).get("kind")
+                except (OSError, ValueError, AttributeError):
+                    kind = None
+                if kind != "match":
+                    waiting.append(p)
         if waiting:
             self.log(f"{len(waiting)} of her Discord posts are still waiting: is her gomihyu bot running? "
                      f"(it posts from {self.outbox})")
@@ -438,6 +455,7 @@ class GomiBrain:
         ctx = types.SimpleNamespace(moves=self.moves, char_dir=self.char_dir, opponent=self.opponent,
                                     scoreboard=self.scoreboard, skills=dict(self.rival.skills(self.moves)),
                                     noticed=self.rival.lines(), options=self.options.lines())
+        self.session_matches += 1
         self.reflecting = threading.Thread(target=self.after_match, args=(record, ctx), daemon=True)
         self.reflecting.start()
 
@@ -505,10 +523,22 @@ class GomiBrain:
         return True
 
     def close(self, timeout=120.0):
-        """Let the reflection on the last match finish."""
+        """Let the reflection on the last match finish, and end the session."""
+        self.end_session(timeout)
+
+    def end_session(self, timeout=120.0):
+        """The game is closing: once her last match is thought over (and its file written), tell her
+        bot the session is over, so it posts about the whole session now. Once per session, and only
+        if a match ended in it."""
         self.stop_match.set()
         if self.reflecting is not None:
             self.reflecting.join(timeout)
+        with self.session_lock:
+            if not self.session_matches:
+                return
+            n, self.session_matches = self.session_matches, 0
+        if self.send({"version": 1, "kind": "session_end", "time": time.time(), "matches": n}):
+            self.log(f"session over: {n} match{'es' if n != 1 else ''}; her Discord bot posts about it now")
 
     # ---- the planner thread ---------------------------------------------
 

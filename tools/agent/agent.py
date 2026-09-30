@@ -374,6 +374,9 @@ def main():
     ap.add_argument("--stats-json", type=Path, help="write latency/late-input stats here on exit")
     ap.add_argument("--progress", type=int, default=0, help="print a progress line every N frames")
     ap.add_argument("--once", action="store_true", help="exit when the game closes the connection")
+    ap.add_argument("--exit-with-game", action="store_true",
+                    help="like --once, but keep retrying until the game first connects (play.py uses it: "
+                         "Gomihyu then ends her session before the AI is stopped)")
     ap.add_argument("--connect-timeout", type=float, default=120.0)
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--gomi", action="store_true",
@@ -400,7 +403,7 @@ def main():
             finally:
                 client.close()
             runner.write_stats()
-            if args.once:
+            if args.once or args.exit_with_game:
                 break
             time.sleep(0.5)
     except KeyboardInterrupt:

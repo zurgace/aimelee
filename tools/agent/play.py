@@ -100,6 +100,7 @@ ROOT = HERE.parents[1]  # the repository, when run from a checkout
 BUNDLE = HERE.parent    # the AI-Melee folder, when run from a Windows download
 SETTINGS = HERE / "settings.json"
 WINDOWS = os.name == "nt"
+GOMI_WRAP_UP_S = 150  # after the game closes: time for Gomihyu's last reflection and session end
 sys.path.insert(0, str(HERE))
 
 import bridge  # noqa: E402
@@ -495,6 +496,8 @@ def main():
         if agent_script.name != "agent.py":
             fail("--record works with the 2017 agents only: add --brain classic")
         agent_cmd += ["--record", str(args.record)]
+    if args.gomi:
+        agent_cmd += ["--exit-with-game"]  # she ends her session (her Discord post) when the game closes
     agent = subprocess.Popen(agent_cmd)
     restarts = 0
 
@@ -517,6 +520,14 @@ def main():
                 agent = subprocess.Popen(agent_cmd)
             time.sleep(0.2)
     finally:
+        if args.gomi and game.poll() is not None and agent.poll() is None:
+            # The game closed by itself: let her finish thinking about the last match and tell her
+            # bot the session is over, before the AI is stopped.
+            print("play: Gomihyu is finishing her thoughts about the session...", flush=True)
+            try:
+                agent.wait(timeout=GOMI_WRAP_UP_S)
+            except subprocess.TimeoutExpired:
+                pass
         stop()
         for p in (agent, game):
             try:

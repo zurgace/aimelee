@@ -240,7 +240,7 @@ class GomiTest(unittest.TestCase):
         self.assertTrue((d / "fox" / "lessons.md").exists())
         self.assertFalse((d / "mario").exists(), "Mario's lessons and scoreboard are his own")
         events = [json.loads(p.read_text()) for p in (d / "outbox").iterdir()]
-        self.assertEqual({e["character"] for e in events}, {"Fox"})
+        self.assertEqual({e["character"] for e in events if e["kind"] != "session_end"}, {"Fox"})
         self.assertTrue(any(e["kind"] == "match" for e in events))
 
     def test_old_files_move_to_mario(self):
@@ -282,6 +282,9 @@ class GomiTest(unittest.TestCase):
         old.parent.mkdir()
         old.write_text("{}")
         os.utime(old, (time.time() - 600, time.time() - 600))
+        held = Path(self.tmp.name) / "outbox" / "held.json"
+        held.write_text(json.dumps({"kind": "match"}))   # her bot holds matches for the session: fine
+        os.utime(held, (time.time() - 600, time.time() - 600))
         g = Game(b)
         g.start()
         b.end_match()
@@ -490,6 +493,19 @@ class GomiTest(unittest.TestCase):
         b.stop_match.set()
         self.assertEqual(b.options.priors.get("grab"), 4.0)
         self.assertIs(b.options.head_start, b.rival.options(), "what works for the human, live")
+
+    def test_one_session_end_after_the_matches(self):
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        b.end_session()
+        self.assertEqual(self.match_events(), [], "no match, no session to post about")
+        self.play_a_match(b)
+        self.play_a_match(b)       # play_a_match closes: the session ends after the second
+        b.end_session()            # the game closing too: nothing more
+        files = sorted((Path(self.tmp.name) / "outbox").glob("*.json"))
+        kinds = [json.loads(p.read_text())["kind"] for p in files]
+        self.assertEqual([k for k in kinds if k != "taunt"], ["match", "session_end", "match", "session_end"])
+        self.assertEqual(json.loads(files[-1].read_text())["matches"], 1)
+        self.assertTrue(any("session over: 1 match;" in ln for ln in self.logs))
 
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")

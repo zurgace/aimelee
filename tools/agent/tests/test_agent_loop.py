@@ -334,15 +334,22 @@ class AgentLoopTest(unittest.TestCase):
                            GOMI_OUTBOX=str(Path(tmp) / "outbox"),
                            GOMI_PLAN_EVERY="0.05")
                 proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--gomi", "--socket", sock,
-                                       "--seed", "3", "--once"], capture_output=True, text=True, timeout=60, env=env)
+                                       "--seed", "3", "--exit-with-game"], capture_output=True, text=True,
+                                      timeout=60, env=env)
                 game.join(10)
                 fox_lessons = (Path(tmp) / "gomi" / "fox" / "lessons.md").exists()
+                events = [json.loads(f.read_text()) for f in sorted((Path(tmp) / "outbox").glob("*.json"))]
         finally:
             fake.close()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Gomihyu alone plays: Mario, Fox", proc.stdout)
         self.assertIn("gomi: Gomihyu plays Fox vs Captain Falcon", proc.stdout)
         self.assertIn("Gomihyu doesn't play Marth; the port stands still", proc.stdout)
+        # The game closed: her match first, then the end of the session, for her bot to post about.
+        kinds = [e["kind"] for e in events if e["kind"] != "taunt"]
+        self.assertEqual(kinds, ["match", "session_end"])
+        self.assertEqual(events[-1]["matches"], 1)
+        self.assertIn("gomi: session over: 1 match;", proc.stdout)
         self.assertTrue(fox_lessons)
         fox = [t for t, st in enumerate(game.states, 1) if st.in_fight and st.fighters[1].ckind == FOX]
         marth = [t for t, st in enumerate(game.states, 1) if st.in_fight and st.fighters[1].ckind == MARTH]

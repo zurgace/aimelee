@@ -209,7 +209,7 @@ If Ollama isn't running, she still plays, on her rule-based fallback. That fallb
 
 Delete `tools/agent/gomi/` to start her over; delete only `rival.json` to make her forget you. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server. `GOMI_NUM_CTX` (default 8192) must equal her Discord bot's `OLLAMA_NUM_CTX`: when the two differ, Ollama reloads the model every time they take turns.
 
-**Posting to Discord.** Her [Discord bot](https://github.com/zurgace/gomihyu) posts her taunts live (at most one every 30 seconds) and a post about every match, as @Gomihyu, in her own words. Both programs find each other on their own: AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, where her bot looks. To pick the channel, say **"gomi post melee here"** in it (as the bot's owner). If her posts pile up unposted, the launcher says so. See her README, "Melee results".
+**Posting to Discord.** Her [Discord bot](https://github.com/zurgace/gomihyu) stays quiet while you play and posts **once per session**, as @Gomihyu, in her own words: how the matches went, her best taunts, whether her practice paid off and what she'll work on next. She posts when you close the game (the launcher gives her a moment to finish her thoughts first) or when you say **"gg"** in Discord. If the game was force-quit, she posts after 20 minutes without a new match. Both programs find each other on their own: AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, where her bot looks. To pick the channel, say **"gomi post melee here"** in it (as the bot's owner). If her posts pile up unposted, the launcher says so. See her README, "Melee results".
 
 ## Troubleshooting
 

@@ -88,6 +88,8 @@ class StatusTest(unittest.TestCase):
         self.check("gomi: match over: lost 0-2 stocks vs Fox; best plan so far fireball, worst approach",
                    ("result", "Gomihyu lost 0-2 stocks vs Fox; best plan so far fireball, worst approach"))
         self.assertIsNone(launcher.status_for("gomi: plan: fireball"))
+        self.check("gomi: session over: 3 matches; her Discord bot posts about it now",
+                   ("discord", "Discord: session over (3 played); her bot posts about it now"))
         self.check('gomi: next match she works on: "Never fall again." (recovery: recover earlier and higher)',
                    ("goal", 'Gomi is working on: "Never fall again."'))
         self.check('gomi: her practice: "Never fall again." (stocks lost offstage: 2 -> 0, better)',
