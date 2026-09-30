@@ -26,7 +26,7 @@ def ubj_str(s):
 
 def build_slp(stage, chars, players, frames):
     """A .slp: Game Start, then per frame a pre and post event per port. `frames`: a list of
-    {port: dict(action, x, y, air, percent, stocks, buttons, raw_y)}."""
+    {port: dict(action, x, y, air, percent, stocks, buttons, raw_x, raw_y)}."""
     events = bytearray([0x35, 1 + 3 * 3])
     for cmd, size in ((0x36, START), (0x37, PRE), (0x38, POST)):
         events += bytes([cmd]) + struct.pack(">H", size)
@@ -41,6 +41,7 @@ def build_slp(stage, chars, players, frames):
             pre = bytearray(PRE)
             struct.pack_into(">iBBIH", pre, 0, n, port, 0, 0, f.get("action", STAND))
             struct.pack_into(">IH", pre, 0x2C, 0, f.get("buttons", 0))
+            pre[0x3A] = f.get("raw_x", 0) & 0xFF
             pre[0x3F] = f.get("raw_y", 0) & 0xFF
             post = bytearray(POST)
             struct.pack_into(">iBBBH", post, 0, n, port, 0, INTERNAL[chars[port]], f.get("action", STAND))

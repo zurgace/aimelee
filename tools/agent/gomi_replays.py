@@ -38,6 +38,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import bridge  # noqa: E402
+import gomi_clips  # noqa: E402
 import gomi_reads  # noqa: E402
 import mario_moves as mm  # noqa: E402
 import slp_read  # noqa: E402
@@ -172,17 +173,23 @@ class Teacher(gomi_reads.Rival):
         return out
 
 
-def learn_replay(teacher, data, log=print, name="replay"):
-    """Learn from one replay's bytes: every Falco port teaches. Returns how many ports taught."""
+def learn_replay(teacher, data, log=print, name="replay", clips=None):
+    """Learn from one replay's bytes: every Falco port teaches (the Teacher, when given; its
+    clips, when `clips` is). Returns how many ports taught."""
     replay = read_replay(data)
+    if clips is not None:
+        for port in replay.characters:
+            code, player = replay.players.get(port, ("", ""))
+            if code or player:
+                clips.saw_player(code or player, player)
     falcos = [port for port, ch in replay.characters.items() if ch == FALCO]
     if len(replay.characters) != 2 or not falcos:
         return 0                                   # singles with a Falco in it only
     edge = mm.EDGE.get(replay.stage, mm.DEFAULT_EDGE)
     for port in falcos:
         other = next(p for p in replay.characters if p != port)
-        reader = gomi_reads.Reader(teacher)
-        frames = 0
+        reader = gomi_reads.Reader(teacher) if teacher is not None else None
+        frames, saw, seen = [], None, 0
         for f in sorted(replay.frames):
             ports = replay.frames[f]
             mine, theirs = ports.get(port), ports.get(other)
@@ -190,14 +197,28 @@ def learn_replay(teacher, data, log=print, name="replay"):
                 continue
             falco = fighter(*mine, FALCO)
             opp = fighter(*theirs, replay.characters[other])
-            reader.watch(falco, opp, abs(falco.pos_x - opp.pos_x), edge)
-            frames += 1
+            if reader is not None:
+                reader.watch(falco, opp, abs(falco.pos_x - opp.pos_x), edge)
+            if clips is not None:
+                # What they pressed this frame, next to what they saw when they pressed it (the last
+                # frame's outcome): the same pairing as her own, live.
+                pre = mine[0]
+                pad = (pre.phys_buttons, falco.input.stick_x, falco.input.stick_y, falco.input.cstick_x,
+                       falco.input.cstick_y, int(max(pre.phys_l, pre.phys_r) * 255))
+                if saw is not None:
+                    frames.append((saw, pad, falco.stocks, falco.percent_f, opp.stocks, opp.percent_f))
+                saw = mm.situation(falco, opp, replay.stage)
+            seen += 1
         code, player = replay.players.get(port, ("", ""))
         code = code or player or f"port {port + 1}"
-        t = teacher.data["teachers"].setdefault(code, {"name": player, "games": 0, "minutes": 0.0})
-        t["name"] = player or t["name"]
-        t["games"] += 1
-        t["minutes"] = round(t["minutes"] + frames / 3600, 1)
+        if clips is not None:
+            for k, clip in gomi_clips.extract(frames):
+                clips.add(k, clip, code)
+        if teacher is not None:
+            t = teacher.data["teachers"].setdefault(code, {"name": player, "games": 0, "minutes": 0.0})
+            t["name"] = player or t["name"]
+            t["games"] += 1
+            t["minutes"] = round(t["minutes"] + seen / 3600, 1)
     return len(falcos)
 
 
@@ -215,30 +236,43 @@ def replay_files(source):
 
 
 def learn(source, gomi_dir, log=print):
-    """Learn from the replays in `source` not read before; returns (new files, ports that taught)."""
+    """Learn from the replays in `source` not read before; returns (new files, ports that taught).
+    The Teacher and the clips keep their own lists of files read, so clips come from replays
+    read before they existed too."""
     teacher = Teacher(Path(gomi_dir) / "falco" / "teacher.json")
-    files = taught = 0
+    clips = gomi_clips.Clips(Path(gomi_dir) / "falco" / "clips.json")
+    files = taught = backfilled = 0
     started = time.monotonic()
     try:
         for key, read in replay_files(source):
-            if key in teacher.data["files"]:
+            new = key not in teacher.data["files"]
+            if not new and key in clips.data["files"]:
                 continue
             try:
-                n = learn_replay(teacher, read(), log, key)
+                n = learn_replay(teacher if new else None, read(), log, key, clips)
             except (ValueError, struct.error, IndexError, OSError) as e:
                 log(f"skipping {key.rsplit(':', 1)[0]} ({e})")
                 n = 0
-            teacher.data["files"][key] = n
-            files += 1
-            taught += n
-            if files % 20 == 0:
+            clips.data["files"][key] = n
+            if new:
+                teacher.data["files"][key] = n
+                files += 1
+                taught += n
+            else:
+                backfilled += 1
+            if (files + backfilled) % 20 == 0:
                 teacher.save()                     # a big folder: keep what's learned so far
+                clips.save()
     except (OSError, zipfile.BadZipFile) as e:
         log(f"can't read replays from {source} ({e})")
-    if files:
+    if files or backfilled:
         teacher.save()
-        log(f"read {files} new replay{'s' if files != 1 else ''} in {time.monotonic() - started:.0f}s; "
-            f"{taught} Falco game{'s' if taught != 1 else ''} to learn from")
+        clips.save()
+        counts = clips.counts()
+        owner = clips.owner()
+        log(f"read {files + backfilled} replay{'s' if files + backfilled != 1 else ''} in "
+            f"{time.monotonic() - started:.0f}s; {taught} new Falco game{'s' if taught != 1 else ''} to learn "
+            f"from; {sum(counts.values())} clips, {counts.get(owner, 0)} of them {clips.name(owner)}'s")
     return files, taught
 
 
@@ -249,7 +283,7 @@ def main():
     args = ap.parse_args()
     learn(args.source, args.gomi_dir, log=lambda m: print(f"gomi: {m}", flush=True))
     teacher = Teacher(Path(args.gomi_dir) / "falco" / "teacher.json")
-    for line in teacher.lines():
+    for line in teacher.lines() + gomi_clips.Clips(Path(args.gomi_dir) / "falco" / "clips.json").lines():
         print(f"  {line}")
     games = Counter({code: t["games"] for code, t in teacher.data["teachers"].items()})
     if not games:
