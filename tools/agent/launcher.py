@@ -144,6 +144,8 @@ def status_for(line, brain="auto"):
         return "discord", f"Discord: {m.group(1)} of her posts are waiting. Is her gomihyu bot running?"
     if line.startswith("gomi: sent the match to her Discord bot"):
         return "discord", "Discord: match sent to her bot (she posts when the session is over, or on GG)"
+    if line.startswith("play: Gomihyu is finishing her thoughts"):
+        return "game", "Game closed; Gomi is finishing her thoughts about the session..."
     m = re.match(r"gomi: session over: (\d+) match", line)
     if m:
         return "discord", f"Discord: session over ({m.group(1)} played); her bot posts about it now"

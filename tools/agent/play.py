@@ -101,6 +101,7 @@ BUNDLE = HERE.parent    # the AI-Melee folder, when run from a Windows download
 SETTINGS = HERE / "settings.json"
 WINDOWS = os.name == "nt"
 GOMI_WRAP_UP_S = 150  # after the game closes: time for Gomihyu's last reflection and session end
+GAME_CLOSING_S = 15   # her agent saw the game's connection close: time for the game process to end
 sys.path.insert(0, str(HERE))
 
 import bridge  # noqa: E402
@@ -500,43 +501,67 @@ def main():
         agent_cmd += ["--record", str(args.record)]
     if args.gomi:
         agent_cmd += ["--exit-with-game"]  # she ends her session (her Discord post) when the game closes
-    agent = subprocess.Popen(agent_cmd)
+    sys.exit(supervise(game, lambda: subprocess.Popen(agent_cmd), gomi=args.gomi))
+
+
+def supervise(game, start_agent, gomi=False, log=None, wrap_up=None, restart_delay=1.0):
+    """Run the agent alongside the game until the game closes; the game's exit code.
+
+    An agent that crashes mid-game is restarted (up to 5 times). With Gomihyu, a clean exit (0) is
+    different: her agent (--exit-with-game) ends her session and exits as soon as the game's
+    connection closes, which can be a moment before the game process itself is gone. So it means
+    the game is closing: wait for that, never restart. Once the game has closed, a Gomihyu agent
+    still running is finishing her last reflection and session end: give it up to `wrap_up` seconds.
+    """
+    log = log or (lambda msg: print(msg, flush=True))
+    wrap_up = GOMI_WRAP_UP_S if wrap_up is None else wrap_up
+    procs = {"agent": start_agent()}
     restarts = 0
 
     def stop(*_):
-        for p in (agent, game):
+        for p in (procs["agent"], game):
             if p.poll() is None:
                 p.terminate()
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
+    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
         while game.poll() is None:
+            agent = procs["agent"]
             if agent.poll() is not None:
+                if gomi and agent.returncode == 0:
+                    try:
+                        game.wait(timeout=GAME_CLOSING_S)   # it closed its connection: it's going
+                    except subprocess.TimeoutExpired:
+                        pass
+                    break
                 if restarts >= 5:
-                    print("play: the agent keeps dying; the game carries on without it", flush=True)
+                    log("play: the agent keeps dying; the game carries on without it")
                     game.wait()
                     break
                 restarts += 1
-                print(f"play: agent exited ({agent.returncode}); restarting it", flush=True)
-                time.sleep(1.0)
-                agent = subprocess.Popen(agent_cmd)
+                log(f"play: agent exited ({agent.returncode}); restarting it")
+                time.sleep(restart_delay)
+                procs["agent"] = start_agent()
             time.sleep(0.2)
     finally:
-        if args.gomi and game.poll() is not None and agent.poll() is None:
+        agent = procs["agent"]
+        if gomi and game.poll() is not None and agent.poll() is None:
             # The game closed by itself: let her finish thinking about the last match and tell her
             # bot the session is over, before the AI is stopped.
-            print("play: Gomihyu is finishing her thoughts about the session...", flush=True)
+            log("play: Gomihyu is finishing her thoughts about the session...")
             try:
-                agent.wait(timeout=GOMI_WRAP_UP_S)
+                agent.wait(timeout=wrap_up)
             except subprocess.TimeoutExpired:
                 pass
         stop()
-        for p in (agent, game):
+        for p in (procs["agent"], game):
             try:
                 p.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 p.kill()
-    sys.exit(game.returncode or 0)
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
+    return game.returncode or 0
+
 
 
 if __name__ == "__main__":

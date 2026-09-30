@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -107,6 +108,58 @@ class PlayDiscoveryTest(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("github.com/vladfi1/phillip", r.stderr)
             self.assertIn("Download ZIP", r.stderr)
+
+
+class SuperviseTest(unittest.TestCase):
+    """play.supervise with stand-in processes: the game and the agent are python one-liners."""
+
+    def setUp(self):
+        sys.path.insert(0, str(AGENT))
+        import play
+        self.play = play
+        self.logs = []
+        self.started = 0
+
+    def proc(self, seconds, code=0):
+        return subprocess.Popen([sys.executable, "-c", f"import sys, time; time.sleep({seconds}); sys.exit({code})"])
+
+    def agents(self, *specs):
+        """start_agent for supervise: each call starts the next (seconds, code) stand-in."""
+        def start():
+            self.started += 1
+            return self.proc(*specs[min(self.started - 1, len(specs) - 1)])
+        return start
+
+    def supervise(self, game, start, **kw):
+        t = time.monotonic()
+        code = self.play.supervise(game, start, log=self.logs.append, restart_delay=0.05, **kw)
+        return code, time.monotonic() - t
+
+    def test_her_agent_leaving_first_means_the_game_is_closing(self):
+        code, took = self.supervise(self.proc(1.5), self.agents((0.3, 0)), gomi=True)
+        self.assertEqual((code, self.started), (0, 1), "never restarted")
+        self.assertLess(took, 4)
+        self.assertFalse(any("restarting" in m or "finishing her thoughts" in m for m in self.logs), self.logs)
+
+    def test_a_crash_is_restarted(self):
+        code, _ = self.supervise(self.proc(1.5), self.agents((0.2, 1), (5, 0)), gomi=True)
+        self.assertEqual(self.started, 2)
+        self.assertIn("play: agent exited (1); restarting it", self.logs)
+
+    def test_without_gomi_any_exit_is_restarted_until_it_gives_up(self):
+        self.supervise(self.proc(4), self.agents((0.05, 0)))
+        self.assertEqual(self.started, 6, "the first and 5 restarts")
+        self.assertIn("play: the agent keeps dying; the game carries on without it", self.logs)
+
+    def test_waits_for_her_to_finish_her_thoughts(self):
+        code, took = self.supervise(self.proc(0.3), self.agents((1.5, 0)), gomi=True)
+        self.assertIn("play: Gomihyu is finishing her thoughts about the session...", self.logs)
+        self.assertGreater(took, 1.2, "waited for her")
+        self.assertLess(took, 4)
+
+    def test_but_not_forever(self):
+        code, took = self.supervise(self.proc(0.3), self.agents((60, 0)), gomi=True, wrap_up=0.5)
+        self.assertLess(took, 5, "stopped after the wrap-up time")
 
 
 class CssCharsTest(unittest.TestCase):
