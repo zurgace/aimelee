@@ -65,7 +65,7 @@ Options:
                      select seats it as HMN with a random character an AI
                      plays (Sheik aside: hold A on Zelda for her)
   --gomi             Gomihyu, a language model through Ollama, takes over P2
-                     as Mario or Fox (slippi-ai and the 2017 agents stay
+                     as Mario, Fox or Falco (slippi-ai and the 2017 agents stay
                      off): she picks the game plan, and learns after each
                      match (gomi_brain.py; tools/agent/gomi/ keeps her lessons)
   --quick            skip the menus: boot straight into a Falcon match (or
@@ -343,7 +343,7 @@ def probe_slippi(python, model):
     return ckinds
 
 
-GOMI_CKINDS = (0x08, 0x02)  # Mario and Fox (gomi_brain.CHARACTERS)
+GOMI_CKINDS = (0x08, 0x02, 0x14)  # Mario, Fox and Falco (gomi_brain.CHARACTERS)
 
 
 def gomi_status():
@@ -354,8 +354,8 @@ def gomi_status():
                            os.environ.get("GOMI_MODEL") or gomi_brain.DEFAULT_MODEL)
     why = llm.check()
     if why:
-        return f"Gomihyu plays Mario and Fox on her rules for now: {why}"
-    return f"Gomihyu plays Mario and Fox ({llm.model} via Ollama)"
+        return f"Gomihyu plays Mario, Fox and Falco on her rules for now: {why}"
+    return f"Gomihyu plays Mario, Fox and Falco ({llm.model} via Ollama)"
 
 
 SHEIK = 0x13  # picked by holding A on Zelda as the match loads: not a character select icon
@@ -395,7 +395,7 @@ def main():
     ap.add_argument("--box-controller", choices=["on", "off"],
                     help="read sticks as Dolphin does, for a box controller (remembered)")
     ap.add_argument("--gomi", action="store_true",
-                    help="Gomihyu, a language model through Ollama, takes over P2 as Mario or Fox")
+                    help="Gomihyu, a language model through Ollama, takes over P2 as Mario, Fox or Falco")
     ap.add_argument("--p2-pick", choices=["on", "off"], default="on",
                     help="opening the AI's door on the character select gives it a random "
                          "character an AI plays (default on)")
@@ -469,6 +469,8 @@ def main():
     if settings.get("box_controller"):
         env.setdefault("MELEE_BOX_CONTROLLER", "1")
         print("play: box controller: sticks read as Dolphin does (--box-controller off to undo)", flush=True)
+    if args.gomi and settings.get("gomi_replays"):
+        env.setdefault("GOMI_REPLAYS", settings["gomi_replays"])  # her Falco reads new replays there
     if args.p2_pick == "on" and ai_chars:
         env["MELEE_AGENT_CSS_CHARS"] = ai_chars
     if args.quick:

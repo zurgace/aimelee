@@ -1,4 +1,4 @@
-"""Gomihyu plays Mario and Fox: she calls the plays, a move library plays them.
+"""Gomihyu plays Mario, Fox and Falco: she calls the plays, a move library plays them.
 
 Gomihyu (https://github.com/zurgace/gomihyu) is a small language model
 (Gemma 4 E4B through Ollama) with an Archdemon persona. She is far too slow
@@ -19,6 +19,11 @@ fireball, backing off, waiting... -- is chosen by trial and error
 (gomi_options.py): within her plan, she tries options and keeps score of what
 each one trades in each situation.
 
+Her Falco also learns from Slippi replays (gomi_replays.py): every Falco
+player in them teaches her -- their techniques, and what worked for them in
+each situation, which she tries first. $GOMI_REPLAYS names the folder (or
+.zip); new replays in it are read each time she starts.
+
 She also reads the human (gomi_reads.py): their habits, which the move
 library then punishes, and their techniques, which she copies once she has
 seen them twice -- mid-match, announcing it in Discord.
@@ -30,7 +35,8 @@ folder per character she plays (mario/, fox/):
   matches.jsonl     one summary per match, with its review (gomi_review.py)
   drill.json        what she practises next match, in her words, and its baseline
   options.json      what each option has traded, per situation and opponent
-and rival.json, what she has noticed about the human (for both characters).
+  teacher.json      (falco/) what the replays taught her
+and rival.json, what she has noticed about the human (for all her characters).
 
 Her Discord bot (gomihyu) posts what she says: a file per match and per
 in-match taunt, in the outbox both programs know,
@@ -57,16 +63,18 @@ import urllib.request
 from pathlib import Path
 
 import bridge
+import falco_moves
 import fox_moves
 import gomi_handbook
 import gomi_options
 import gomi_reads
+import gomi_replays
 import gomi_review
 import mario_moves
 import roster
 
 # CKind -> the move library for each character she plays.
-CHARACTERS = {mario_moves.CKIND: mario_moves, fox_moves.CKIND: fox_moves}
+CHARACTERS = {mario_moves.CKIND: mario_moves, fox_moves.CKIND: fox_moves, falco_moves.CKIND: falco_moves}
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "http://localhost:11434/api/chat"
@@ -255,6 +263,18 @@ class GomiBrain:
         self.said_at = 0.0
         self.session_matches = 0   # matches ended since the last session_end
         self.session_lock = threading.Lock()
+        self.learning = None       # the thread reading new replays
+        replays = os.environ.get("GOMI_REPLAYS", "").strip()
+        if replays:
+            self.learning = threading.Thread(target=self.learn_replays, args=(replays,), daemon=True)
+            self.learning.start()
+
+    def learn_replays(self, source):
+        """New replays in `source`: what the Falco players in them do (gomi_replays)."""
+        try:
+            gomi_replays.learn(source, self.dir, log=self.log)
+        except Exception as e:  # a background thread: say so, don't vanish
+            self.log(f"couldn't read the replays in {source} ({type(e).__name__}: {e})")
 
     def migrate(self):
         """Her files from when she only played Mario go in mario/."""
@@ -272,6 +292,7 @@ class GomiBrain:
         self.player.reads = self.rival.reads()
         self.char_dir = self.dir / moves.NAME.lower()
         self.scoreboard = Scoreboard(self.char_dir / "scoreboard.json")
+        self.teacher = gomi_replays.Teacher(self.char_dir / "teacher.json")   # {} unless replays taught her
         self.drill = self.load_drill()
         self.apply_skills()
 
@@ -281,12 +302,14 @@ class GomiBrain:
             drill = json.loads((self.char_dir / "drill.json").read_text())
         except (OSError, ValueError):
             return None
-        names = gomi_review.drill_names(self.rival.skills(self.moves))
+        names = gomi_review.drill_names({**self.rival.skills(self.moves), **self.teacher.skills(self.moves)})
         return drill if isinstance(drill, dict) and drill.get("drill") in names else None
 
     def apply_skills(self):
         """The techniques she has copied; the one she's practising, nearly always."""
         skills = self.rival.skills(self.moves)
+        for tech, rate in self.teacher.skills(self.moves).items():   # what her teachers use
+            skills[tech] = max(rate, skills.get(tech, 0.0))
         if self.drill and self.drill["drill"].startswith("tech:"):
             tech = self.drill["drill"].split(":", 1)[1]
             if tech in skills:
@@ -325,7 +348,8 @@ class GomiBrain:
             self.log(f'practising this match: "{self.drill["goal"]}" ({self.drill["drill"]}: {info["does"]})')
         self.options = gomi_options.Bandit(self.char_dir / "options.json", self.opponent,
                                            random.Random(self.seed), option_priors,
-                                           head_start=self.rival.options())  # what works for the human
+                                           head_start=self.rival.options(),  # what works for the human
+                                           teacher=self.teacher.options())   # and for the players in replays
         self.player.chooser = self.options.choose
         self.system = self.match_prompt()
         self.active = True
@@ -547,6 +571,8 @@ class GomiBrain:
         lessons = "\n".join(f"- {ln}" for ln in self.lessons) or "- (none yet: this is your first match)"
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (no numbers yet)"
         rival = "\n".join(f"- {ln}" for ln in self.rival.lines()) or "- (nothing yet)"
+        taught = "".join(f"- {ln}\n" for ln in self.teacher.lines())
+        taught = f"What the replays taught you:\n{taught}\n" if taught else ""
         options = "\n".join(f"- {ln}" for ln in self.options.lines()) if self.options else ""
         options = options or "- (nothing yet: you'll try everything)"
         practice = ""
@@ -559,7 +585,7 @@ class GomiBrain:
                 "Recovering, teching and getting up happen by themselves.\n\n"
                 f"What every {self.moves.NAME} player knows:\n"
                 f"{gomi_handbook.lines(self.moves.NAME, self.opponent)}\n\n"
-                f"{practice}Your lessons from earlier matches:\n{lessons}\n\n"
+                f"{practice}{taught}Your lessons from earlier matches:\n{lessons}\n\n"
                 f"What each plan has done against {self.opponent} so far:\n{board}\n\n"
                 "What you've noticed about this human (your moves already punish their habits):\n"
                 f"{rival}\n\n"

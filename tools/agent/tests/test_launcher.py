@@ -26,7 +26,7 @@ class OptionsTest(unittest.TestCase):
             disc.write_bytes(b"")
             opts = launcher.load_options({}, environ={"MELEE_DISC": str(disc)})
             self.assertEqual(opts, {"brain": "auto", "p2_pick": True, "legal_stages": True, "gomi": False,
-                                    "box": False, "disc": str(disc)})
+                                    "box": False, "disc": str(disc), "replays": None})
             self.assertEqual(launcher.play_args(opts), ["--iso", str(disc), "--brain", "auto",
                                                         "--p2-pick", "on", "--random-stages", "legal",
                                                         "--box-controller", "off"])
@@ -38,6 +38,15 @@ class OptionsTest(unittest.TestCase):
             again = launcher.load_options(settings, environ={})
             self.assertEqual(launcher.play_args(again)[2:], ["--brain", "classic", "--p2-pick", "off",
                                                              "--random-stages", "all", "--box-controller", "off"])
+
+    def test_replay_folder_is_remembered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            opts = launcher.load_options({}, environ={})
+            opts["replays"] = tmp
+            settings = launcher.store_options({}, opts)
+            self.assertEqual(settings["gomi_replays"], str(Path(tmp).resolve()), "the key play.py reads")
+            self.assertEqual(launcher.load_options(settings, environ={})["replays"], str(Path(tmp).resolve()))
+        self.assertIsNone(launcher.load_options(settings, environ={})["replays"], "gone: forgotten")
 
     def test_gomi_option(self):
         opts = launcher.load_options({"launcher": {"gomi": True}}, environ={})
@@ -98,8 +107,8 @@ class StatusTest(unittest.TestCase):
                    ("discord", "Discord: 3 of her posts are waiting. Is her gomihyu bot running?"))
         self.check("gomi: Gomihyu plays Fox vs Marth (gemma4:e4b; 0 lessons, 0 matches played)",
                    ("match", "This match: Gomihyu plays Fox vs Marth"))
-        self.check("agent: Gomihyu doesn't play Peach; the port stands still this match. Pick Mario or Fox",
-                   ("match", "This match: Gomihyu doesn't play Peach (pick Mario or Fox for P2)"))
+        self.check("agent: Gomihyu doesn't play Peach; the port stands still this match. Pick Mario, Fox or Falco",
+                   ("match", "This match: Gomihyu doesn't play Peach (pick Mario, Fox or Falco for P2)"))
         self.check("[    1.950] agent: client connected (#1)",
                    ("ai", "AI ready: pick your characters and play"), brain="gomi")
 

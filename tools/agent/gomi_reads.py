@@ -60,6 +60,7 @@ COPY_LINES = {
 OPTION_STARTS = {0xD4: "grab", 0xD6: "grab", 0x39: "dtilt", 0x2C: "jab", 0x32: "dash_attack", 0xB2: "shield",
                  **{m: "smash" for m in range(0x3A, 0x41)}}
 ROLLS = (0xE9, 0xEA)
+BLASTER_STARTS = (0x155, 0x158)  # Fox's and Falco's laser, on the ground and in the air: zoning
 SH_HEIGHT = 22         # an aerial started below this after a jump: a short hop
 
 HABIT_NAMES = {"tech": "when they tech", "getup": "when they miss a tech and get up",
@@ -133,19 +134,25 @@ class Rival:
         """{bucket key: {option: [tries, total, squares]}}: their results, her head start."""
         return self.data.setdefault("options", {})
 
-    def what_works(self, top=3):
+    def what_works(self, top=3, view="rival"):
+        """Their best options: told to her about the human she plays ("you're on the ground"), or,
+        view="teacher", about a player she imitates ("their opponent's on the ground")."""
         best = []
         for k, rows in self.options().items():
             for o, r in rows.items():
                 if r[0] >= 3 and r[1] > 0:
                     best.append((r[1] / r[0], k, o, r[0]))
         best.sort(reverse=True)
-        return [f"{their_situation(k)}: {gomi_options.NAMES.get(o, o)} ({m:+.0f} a try, {n} times)"
+        where = their_situation if view == "rival" else teacher_situation
+        return [f"{where(k)}: {gomi_options.NAMES.get(o, o)} ({m:+.0f} a try, {n} times)"
                 for m, k, o, n in best[:top]]
 
     def save(self):
+        """Whole or not at all (write, then rename): another thread may be reading it."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=1))
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(json.dumps(self.data, indent=1))
+        tmp.replace(self.path)
 
 
 YOU = {"grounded": "you're on the ground", "air": "you're in the air", "shield": "you're shielding",
@@ -156,6 +163,16 @@ def their_situation(k):
     """A bucket key seen from the human's side, told to her: 'close, you're on the ground'."""
     rng, her, spot = k.split("/")
     return f"{rng}, {YOU.get(her, her)}" + (", them by the ledge" if spot == "edge" else "")
+
+
+OPPONENT = {"grounded": "their opponent on the ground", "air": "their opponent in the air",
+            "shield": "their opponent shielding", "busy": "their opponent stuck in a move or roll"}
+
+
+def teacher_situation(k):
+    """A bucket key seen from a player she imitates: 'close, their opponent on the ground'."""
+    rng, opp, spot = k.split("/")
+    return f"{rng}, {OPPONENT.get(opp, opp)}" + (", by the ledge" if spot == "edge" else "")
 
 
 def toward(fighter, forward, me_x):
@@ -249,6 +266,8 @@ class Reader:
             option = "retreat" if toward(opp, now == 0xE9, me.pos_x) == "away" else None
         if now == SHINE_START and opp.ckind in SHINERS:
             option = "shine"
+        if now in BLASTER_STARTS and opp.ckind in SHINERS:
+            option = "zone"
         if now in mm.AERIALS and opp.in_air and not self.swung and self.t - self.takeoff_at <= 20:
             self.swung = True
             option = "sh_aerial" if opp.pos_y < SH_HEIGHT else "fullhop_aerial"

@@ -126,7 +126,7 @@ class MenuTest(unittest.TestCase):
                 self.assertTrue(set(m.menu(s, plan, m.bucket(s))) <= set(mm.MENUS[plan]))
 
     def test_every_option_plays_cleanly(self):
-        for lib in (mm.Mario, fm.Fox):
+        for lib in (mm.Mario, fm.Fox, __import__("falco_moves").Falco):
             for option in lib.OPTIONS:
                 for d in (8, 30, 70):
                     p = lib(seed=3, skills={"shffl": 1.0, "wavedash": 1.0, "multishine": 1.0})

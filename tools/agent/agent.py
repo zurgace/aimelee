@@ -165,7 +165,8 @@ class Runner:
         entry = rd.for_stage(by_stage, stkind) if by_stage else None
         if entry is None:
             if not self.roster and self.gomi is not None:
-                gomi = " or ".join(m.NAME for m in self.gomi_mod.CHARACTERS.values())
+                names = [m.NAME for m in self.gomi_mod.CHARACTERS.values()]
+                gomi = ", ".join(names[:-1]) + " or " + names[-1] if len(names) > 1 else names[0]
                 self.log(f"Gomihyu doesn't play {rd.display(ckind)}; the port stands still this match. "
                          f"Pick {gomi} for her, or set it to CPU on the character select")
                 return False

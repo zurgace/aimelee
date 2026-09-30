@@ -31,6 +31,15 @@ BASICS = {
         "Your recovery is predictable: from low use Firefox, from ledge height Illusion; don't go deep "
         "offstage to edgeguard.",
     ],
+    "Falco": [
+        "Short-hop lasers are your neutral: they stop approaches and push them into shield (lasers).",
+        "Shine pops them up: jump out of it into a down-air or up-air and shine again -- a pillar "
+        "(pressure).",
+        "Down-air spikes: offstage it kills at almost any percent (edgeguard).",
+        "Falco falls fast and gets combo'd: land on the stage, not above them.",
+        "Your recovery is short: Phantasm only from close at ledge height, else Fire Bird early; "
+        "never chase deep offstage.",
+    ],
 }
 
 # The opponent's character -> the one thing to know about it.
@@ -86,12 +95,12 @@ DANGEROUS_CLOSE = {"Jigglypuff", "Marth", "Roy", "Ganondorf"}
 def priors(character, opponent):
     """{plan: prior} for her playing `character` against `opponent`."""
     p = {"approach": 6.0, "pressure": 6.0, "space": 4.0, "defend": 0.0, "edgeguard": 4.0, "platform": 0.0}
-    zone = "lasers" if character == "Fox" else "fireball"
+    zone = "lasers" if character in ("Fox", "Falco") else "fireball"
     p[zone] = 4.0
     if opponent in PROJECTILES:
         p[zone] -= 6.0      # they out-zone you or reflect it: go in instead
         p["approach"] += 4.0
-    if opponent in ("Fox", "Falco") and character == "Fox":
+    if opponent in ("Fox", "Falco") and character in ("Fox", "Falco"):
         p[zone] -= 4.0
     if opponent in POOR_RECOVERY:
         p["edgeguard"] += 8.0

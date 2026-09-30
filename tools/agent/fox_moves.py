@@ -43,6 +43,8 @@ def multishine(n):
 
 class Fox(base.Mario):
     ZONE = ZONE
+    SIDE_B_REACH = 55      # side-B (Illusion) when level with the ledge and at most this far out
+    UP_B_FROM = 25         # up-B (Firefox) once this far out, or below the stage
 
     def recover(self, s):
         self.mode = "recover"
@@ -56,11 +58,11 @@ class Fox(base.Mario):
             return pad(X, sx=home * 80)
         if self.upb_used or s.vy > 0:
             return pad(sx=home * 80)
-        if -12 < s.y < 20 and beyond < (40 if early else 55):
+        if -12 < s.y < 20 and beyond < (self.SIDE_B_REACH - 15 if early else self.SIDE_B_REACH):
             self.upb_used = True
             self.run(*[NEUTRAL] * 20)
             return pad(B, sx=home * 80)                  # Illusion, straight at the stage
-        if s.y < (10 if early else 0) or beyond > (15 if early else 25):
+        if s.y < (10 if early else 0) or beyond > (self.UP_B_FROM - 10 if early else self.UP_B_FROM):
             self.upb_used = True
             ledge_x = sign(s.x) * s.edge
             dx, dy = ledge_x - s.x, 6 - s.y

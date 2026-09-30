@@ -14,7 +14,8 @@ Untried options are tried first, so she experiments; after that she leans
 on what works, and still now and then tries the rest.
 
 Starting guesses (`priors`, in the same units) come from her drill and her
-reads of the human; gomi_reads adds what has worked for the human (their
+reads of the human; gomi_reads adds what has worked for the human, and
+gomi_replays what has worked for the players she imitates in replays (their
 head start, worth up to HEAD_START of her own tries).
 
 The file: <gomi>/<character>/options.json, {"by_opponent": {opponent:
@@ -56,7 +57,7 @@ def mean_of(row):
 class Bandit:
     """Her options' scores for one match against `opponent`, and the choosing."""
 
-    def __init__(self, path, opponent, rng, priors=None, head_start=None):
+    def __init__(self, path, opponent, rng, priors=None, head_start=None, teacher=None):
         self.path = Path(path)
         self.opponent = opponent
         self.rng = rng
@@ -64,6 +65,7 @@ class Bandit:
         # bucket key -> option -> [n, total, squares]: the human's, kept live (not copied) so what
         # they do this match counts at once
         self.head_start = head_start if head_start is not None else {}
+        self.teacher = teacher or {}              # the same, from the replays she learned from
         try:
             self.data = json.loads(self.path.read_text())
         except (OSError, ValueError):
@@ -82,8 +84,8 @@ class Bandit:
         if allrow and allrow[0]:                  # other opponents: a hint, not the answer
             w = min(allrow[0], 3)
             m, weight = (m * weight + mean_of(allrow) * w) / (weight + w), weight + w
-        human = self.head_start.get(k, {}).get(option)
-        if human and human[0]:
+        human = self.head_row(k, option)
+        if human[0]:
             w = min(human[0], HEAD_START)
             m, weight = (m * weight + mean_of(human) * w) / (weight + w), weight + w
         return m, weight
@@ -97,12 +99,20 @@ class Bandit:
 
     def untried(self, k, option):
         own = self.mine.get(k, {}).get(option)
-        human = self.head_start.get(k, {}).get(option)
-        return not (own and own[0]) and not (human and human[0]) and not self.started[(k, option)]
+        return not (own and own[0]) and not self.head_row(k, option)[0] and not self.started[(k, option)]
+
+    def head_row(self, k, option):
+        """[tries, total, squares] of the human's and her teachers' results together."""
+        row = [0, 0.0, 0.0]
+        for table in (self.head_start, self.teacher):
+            other = table.get(k, {}).get(option)
+            if other:
+                row = [a + b for a, b in zip(row, other[:3], strict=False)]
+        return row
 
     def copyable(self, k, option):
-        """It has paid for the human here, and she hasn't tried it here herself yet."""
-        human = self.head_start.get(k, {}).get(option)
+        """It has paid for the human (or her teachers) here, and she hasn't tried it here herself yet."""
+        human = self.head_row(k, option)
         own = self.mine.get(k, {}).get(option)
         return bool(human and human[0] and mean_of(human) > 0 and not (own and own[0])
                     and not self.started[(k, option)])
@@ -113,7 +123,7 @@ class Bandit:
         copy = [o for o in menu if self.copyable(k, o)]
         fresh = [o for o in menu if self.untried(k, o)]
         if copy:                                  # what has paid for the human, first
-            pick = max(copy, key=lambda o: mean_of(self.head_start[k][o]))
+            pick = max(copy, key=lambda o: mean_of(self.head_row(k, o)))
         elif fresh:
             pick = self.rng.choice(fresh)         # experiment: never tried here yet
         else:

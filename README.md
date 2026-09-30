@@ -157,7 +157,7 @@ A gamepad on port 1 works too, and so does an official GameCube adapter. Click t
   - **Newer Phillip only**;
   - **2017 agents only**.
 - **Random character for P2**, and **tournament-only random stages**. Both are on by default.
-- **Gomihyu takes over P2**: she plays P2 as Mario or Fox, and the other AIs are off; see [below](#gomihyu-takes-over-p2-optional). Off by default.
+- **Gomihyu takes over P2**: she plays P2 as Mario, Fox or Falco, and the other AIs are off; see [below](#gomihyu-takes-over-p2-optional). Off by default.
 
 The launcher remembers your choices. While you play, it shows **AI ready**, and who plays P2 each match. **Show log** has the details, which are also saved in `tools/agent/ai-melee.log`.
 
@@ -165,10 +165,11 @@ The launcher remembers your choices. While you play, it shows **AI ready**, and 
 
 ## Gomihyu takes over P2 (optional)
 
-[Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she is P2's AI, as **Mario** or **Fox**. slippi-ai and the 2017 agents stay off (they aren't even loaded), and P2's door opens with Mario or Fox.
-- **Before her first match** she already knows the basics: a handbook (`tools/agent/gomi_handbook.py`) of what every Mario or Fox player learns first, and a note on each opponent. Her prompt always shows it, and it gives her rule-based fallback a starting guess for each plan. Her own numbers replace that guess as she plays.
+[Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she is P2's AI, as **Mario**, **Fox** or **Falco**. slippi-ai and the 2017 agents stay off (they aren't even loaded), and P2's door opens with one of them.
+- **Before her first match** she already knows the basics: a handbook (`tools/agent/gomi_handbook.py`) of what every Mario, Fox or Falco player learns first, and a note on each opponent. Her prompt always shows it, and it gives her rule-based fallback a starting guess for each plan. Her own numbers replace that guess as she plays.
 - **During a match:** twice a second she picks her character's game plan: approach, zoning (Mario's fireballs, Fox's lasers), spacing, pressure, defending, edgeguarding, or playing from the platforms. A move library plays that plan frame by frame; she's far too slow to press the buttons herself. Within the plan she **learns by trial and error**: each time she's free to act, she picks one option from the plan's menu (grab, down-tilt, a short-hop or full-hop aerial, a fireball or laser, backing off, shielding, waiting for your whiff, Fox's shine...). She scores it by the damage traded in the next second and a half, separately for each situation (distance, what you're doing, whether she's by the ledge) and each opponent character. Options she hasn't tried yet come first, so she experiments; then she leans on what pays and still tries the rest now and then (`options.json`). She also **learns from you**: she watches which of those options you pick in each situation and what they trade for you, and tries what works for you first. Her own results take over as she plays. Fox shines up close. Recovering (Mario's Up-B; Fox's Illusion or a Firefox aimed at the ledge), teching and getting up happen without her.
-- **She reads you** (human players only), and remembers across matches and both her characters:
+- **Her Falco learns from Slippi replays.** Press **Teach Gomi from replays...** in the launcher and pick your Slippi replay folder (Slippi Launcher keeps them in `Documents/Slippi` on Windows, `~/Slippi` on Linux, one folder per month). She imitates **every Falco player** in them, you and your friends: the tech they use (L-cancels, SHFFLs, wavedashes, shield drops...) and which options they pick in each situation, with what those traded; what worked for them is what she tries first. The folder is read again each time she starts, and only new replays count, so she keeps learning from your netplay. From a terminal: `python3 tools/agent/gomi_replays.py <folder or .zip>`. What she learned goes in `tools/agent/gomi/falco/teacher.json`; your replays stay where they are.
+- **She reads you** (human players only), and remembers across matches and all her characters:
   - **She copies your tech.** She starts without wavedashing, wavelanding, L-cancelling, SHFFLs, shield drops and multishines (as Fox). The second time she sees you do one, she starts doing it too, mid-match, and says so in Discord. The more you do it, the more she does.
   - **She punishes your habits:** which way you tech, how you get up, your favourite ledge option, and whether you shield or jump when she comes in. After a few sightings she waits where your roll ends, traps your ledge option, and grabs you if you shield a lot. She reacts to tech rolls and getups she sees, too.
 - **After each match:** she reads a review of it: what hit her and what she was doing at the time, what she hit you with, who won each neutral exchange and how much it was worth, and how each stock was lost. Then she rewrites her lessons, and **picks one thing to practise next match**:
@@ -194,11 +195,11 @@ The launcher remembers your choices. While you play, it shows **AI ready**, and 
    ```
 
 2. In the launcher, tick **Gomihyu takes over P2** and press **Play**. From a terminal, use `play.py --gomi` instead.
-3. Pick Mario or Fox for P2 (the door opens with one of them). Anyone else stands still while she's on. The launcher shows her taunts, the result and her line after each match. **Show log** shows each plan she picks.
+3. Pick Mario, Fox or Falco for P2 (the door opens with one of them). Anyone else stands still while she's on. The launcher shows her taunts, the result and her line after each match. **Show log** shows each plan she picks.
 
 If Ollama isn't running, she still plays, on her rule-based fallback. That fallback also learns from the scoreboard.
 
-**Her memory** lives in `tools/agent/gomi/`, one folder per character (`mario/`, `fox/`), so her Fox lessons are separate from her Mario ones:
+**Her memory** lives in `tools/agent/gomi/`, one folder per character (`mario/`, `fox/`, `falco/`), so each character's lessons are its own:
 - `lessons.md` has her lessons;
 - `scoreboard.json` has every plan's results;
 - `matches.jsonl` has one line per match, with its review;

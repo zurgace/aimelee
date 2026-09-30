@@ -507,6 +507,30 @@ class GomiTest(unittest.TestCase):
         self.assertEqual(json.loads(files[-1].read_text())["matches"], 1)
         self.assertTrue(any("session over: 1 match;" in ln for ln in self.logs))
 
+    def test_falco_starts_from_the_replays(self):
+        import gomi_replays
+        teacher = gomi_replays.Teacher(Path(self.tmp.name) / "falco" / "teacher.json")
+        teacher.data["techs"] = {"wavedash": 30, "l_cancel": 50}
+        teacher.data["options"] = {"mid/grounded/center": {"zone": [40, 120.0, 900.0]}}
+        teacher.data["teachers"] = {"ILYJ#309": {"name": "Uni", "games": 20, "minutes": 46.5}}
+        teacher.save()
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        g = Game(b)
+        g.me = fighter(x=-20, ckind=0x14)
+        g.start()
+        b.stop_match.set()
+        self.assertEqual(b.moves.NAME, "Falco")
+        self.assertEqual(b.player.skills["wavedash"], 0.8)
+        self.assertEqual(b.options.teacher["mid/grounded/center"]["zone"][0], 40)
+        self.assertEqual(b.options.choose(("mid", "grounded", "center"), ["zone", "wait", "dash_in"]), "zone",
+                         "what worked for her teachers, first")
+        self.assertIn("What the replays taught you:", b.system)
+        self.assertIn("Uni (20 games)", b.system)
+        mario = Game(b)
+        mario.start()
+        b.stop_match.set()
+        self.assertNotIn("What the replays taught you", b.system, "Mario learned nothing from them")
+
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")
         self.play_a_match(b, fall_offstage=2)

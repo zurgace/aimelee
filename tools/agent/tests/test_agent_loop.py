@@ -342,7 +342,7 @@ class AgentLoopTest(unittest.TestCase):
         finally:
             fake.close()
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("Gomihyu alone plays: Mario, Fox", proc.stdout)
+        self.assertIn("Gomihyu alone plays: Mario, Fox, Falco", proc.stdout)
         self.assertIn("gomi: Gomihyu plays Fox vs Captain Falcon", proc.stdout)
         self.assertIn("Gomihyu doesn't play Marth; the port stands still", proc.stdout)
         # The game closed: her match first, then the end of the session, for her bot to post about.

@@ -69,6 +69,8 @@ def load_options(settings, environ=os.environ):
         opts["brain"] = DEFAULTS["brain"]
     disc = settings.get("disc") or environ.get("MELEE_DISC")
     opts["disc"] = disc if disc and Path(disc).is_file() else None
+    replays = settings.get("gomi_replays")
+    opts["replays"] = replays if replays and Path(replays).exists() else None
     return opts
 
 
@@ -76,6 +78,8 @@ def store_options(settings, opts):
     settings["launcher"] = {k: opts[k] for k in DEFAULTS}
     if opts.get("disc"):
         settings["disc"] = str(Path(opts["disc"]).resolve())
+    if opts.get("replays"):
+        settings["gomi_replays"] = str(Path(opts["replays"]).resolve())
     return settings
 
 
@@ -129,11 +133,11 @@ def status_for(line, brain="auto"):
         return "match", f"This match: Gomihyu plays {m.group(1)} vs {m.group(2)}"
     m = re.match(r"agent: (Gomihyu doesn't play .+?);", line)
     if m:
-        return "match", "This match: " + m.group(1) + " (pick Mario or Fox for P2)"
+        return "match", "This match: " + m.group(1) + " (pick Mario, Fox or Falco for P2)"
     m = re.match(r'gomi: (?:Gomi|after the match): "(.+)"$', line)
     if m:
         return "gomi", f'Gomi: "{m.group(1)}"'
-    if line.startswith("play: Gomihyu plays Mario and Fox on her rules"):
+    if line.startswith("play: Gomihyu plays Mario, Fox and Falco on her rules"):
         return "gomi", "Gomihyu: Ollama isn't answering, so she plays on her rules (see log)"
     m = re.match(r"gomi: (\d+) of her Discord posts are still waiting", line)
     if m:
@@ -446,8 +450,15 @@ class Launcher:
         for button in self.brain_buttons:
             button.pack(anchor="w")
         self.gomi = tk.BooleanVar(value=self.opts["gomi"])
-        ttk.Checkbutton(ai, text="Gomihyu takes over P2, as Mario or Fox (needs Ollama with gemma4:e4b)",
+        ttk.Checkbutton(ai, text="Gomihyu takes over P2, as Mario, Fox or Falco (needs Ollama with gemma4:e4b)",
                         variable=self.gomi, command=self.gomi_changed).pack(anchor="w", pady=(6, 0))
+        replays = ttk.Frame(ai)
+        replays.pack(fill="x", pady=(4, 0))
+        ttk.Label(replays, text="Her Falco learns from replays:").pack(side="left")
+        self.replays_label = ttk.Label(replays, text="")
+        self.replays_label.pack(side="left", padx=6)
+        ttk.Button(replays, text="Teach Gomi from replays...", command=self.choose_replays).pack(side="right")
+        self.show_replays()
         self.gomi_changed()
         game = ttk.LabelFrame(self.options, text="Game", padding=8)
         game.pack(fill="x", pady=(8, 0))
@@ -544,6 +555,37 @@ class Launcher:
             self.save()
         return bool(self.opts.get("disc"))
 
+    def show_replays(self):
+        self.replays_label.configure(text=Path(self.opts["replays"]).name if self.opts.get("replays")
+                                     else "(none: pick your Slippi replay folder)")
+
+    def choose_replays(self):
+        """Her Falco imitates every Falco player in these replays (gomi_replays.py): read them now,
+        and new ones each time she starts."""
+        start = self.opts.get("replays") or str(Path.home() / "Slippi")
+        folder = self.filedialog.askdirectory(parent=self.root, title="Your Slippi replay folder",
+                                              initialdir=start if Path(start).is_dir() else str(Path.home()))
+        if not folder:
+            return
+        self.opts["replays"] = folder
+        self.show_replays()
+        self.save()
+        if not self.log_shown:
+            self.toggle_log()
+
+        def learn():
+            import gomi_replays
+            lines = []
+
+            def log(msg):
+                lines.append(msg)
+                self.lines_q.put(f"gomi: {msg}")
+            gomi_replays.learn(folder, os.environ.get("GOMI_DIR") or HERE / "gomi", log=log)
+            taught = gomi_replays.Teacher(Path(os.environ.get("GOMI_DIR") or HERE / "gomi") / "falco" /
+                                          "teacher.json").lines()
+            self.lines_q.put(("replays", "\n".join(lines + taught) or "No new replays with a Falco in them."))
+        threading.Thread(target=learn, daemon=True).start()
+
     def save(self):
         self.opts.update(brain=self.brain.get(), p2_pick=self.p2_pick.get(), legal_stages=self.legal.get(),
                          gomi=self.gomi.get(), box=self.box.get())
@@ -590,6 +632,10 @@ class Launcher:
                 line = self.lines_q.get_nowait()
                 if line is None:
                     self.finished()
+                    continue
+                if isinstance(line, tuple):              # the replays are read (choose_replays)
+                    self.messagebox.showinfo("AI-Melee", "Gomi's Falco, from your replays:\n\n" + line[1],
+                                             parent=self.root)
                     continue
                 self.lines.append(line)
                 self.append(line)
