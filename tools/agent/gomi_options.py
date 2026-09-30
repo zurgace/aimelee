@@ -38,7 +38,7 @@ THEM = {"grounded": "they're on the ground", "air": "they're in the air", "shiel
 NAMES = {"dash_in": "dash in", "walk_in": "walk in", "retreat": "back off", "wait": "wait for it",
          "shield": "shield", "grab": "grab", "dtilt": "down-tilt", "jab": "jab", "smash": "smash attack",
          "dash_attack": "dash attack", "sh_aerial": "short-hop aerial", "fullhop_aerial": "full-hop aerial",
-         "zone": "projectile", "shine": "shine"}
+         "zone": "projectile", "shine": "shine", "crouch_shine": "crouch, then shine"}
 
 
 def key(bucket):

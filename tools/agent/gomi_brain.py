@@ -70,6 +70,7 @@ import gomi_options
 import gomi_reads
 import gomi_replays
 import gomi_review
+import gomi_timing
 import mario_moves
 import roster
 
@@ -293,6 +294,7 @@ class GomiBrain:
         self.char_dir = self.dir / moves.NAME.lower()
         self.scoreboard = Scoreboard(self.char_dir / "scoreboard.json")
         self.teacher = gomi_replays.Teacher(self.char_dir / "teacher.json")   # {} unless replays taught her
+        self.player.timing = gomi_timing.Timing(self.char_dir / "timing.json")  # her eaten inputs, by state
         self.drill = self.load_drill()
         self.apply_skills()
 
@@ -363,6 +365,8 @@ class GomiBrain:
     def option_priors(self):
         """Starting guesses for her options from what she has read of the human."""
         priors = {}
+        if self.moves.CKIND in gomi_reads.SHINERS:
+            priors["shine"] = 4.0         # frame 1, their bread and butter
         habit = self.player.read("defense")
         if habit == "shield":
             priors["grab"] = 4.0          # they shield when she comes in: grabs beat shields
@@ -458,11 +462,17 @@ class GomiBrain:
         self.options.finish()
         self.options.save()
         variety, favourites = self.options.variety()
+        timing = self.player.timing
+        timing.save()
+        eaten = timing.summary()
+        if eaten:
+            self.log(f"inputs eaten: {eaten}")
         metrics = self.review.metrics(self.player.used)
+        metrics["eaten_share"] = round(timing.share(), 2)
         record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "opponent": self.opponent, "stage": self.stage,
                   "won": won, "stocks": [my_stocks, their_stocks], "percent": [my_pct, their_pct],
                   "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned,
-                  "review": self.review.summary(), "metrics": metrics,
+                  "review": self.review.summary() + ([eaten] if eaten else []), "metrics": metrics,
                   "options": {"different": variety, "most": favourites}}
         if self.drill:
             result = gomi_review.judge(self.drill["drill"], self.drill["goal"], self.drill.get("baseline", 0), metrics)

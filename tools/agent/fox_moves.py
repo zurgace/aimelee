@@ -82,6 +82,42 @@ class Fox(base.Mario):
             return pad(cy=80)
         return pad(cy=-80) if self.rng.random() < 0.4 else pad(A)
 
+    def opt_sh_aerial(self, s):
+        """A short-hop aerial, and landing next to them: shine. Their bread and butter."""
+        knows = self.knows("shffl")
+        if knows:
+            self.used["shffl"] += 1
+        hop = self.shffl if knows else self.short_hop
+        return self.start(self.aerial_into_shine(hop, self.aerial_for(s), s.toward * 40))
+
+    def opt_crouch_shine(self, s):
+        """Crouch (it cancels their hits' knockback at low percent) and shine the moment they come in."""
+        return self.start(self.crouch_shine())
+
+    def crouch_shine(self):
+        s = yield pad(sy=-80)
+        for _ in range(30):
+            if s.dist < 13 and not s.air:
+                break
+            s = yield pad(sy=-80)                        # holding down: crouching
+        else:
+            return
+        for p in shine():
+            s = yield p
+
+    def aerial_into_shine(self, hop, aerial, drift):
+        s = yield from hop(aerial, drift=drift)
+        if s is None or s.dist > 15:
+            return
+        for _ in range(20):                              # the landing lag eats presses: let it pass
+            if s.motion not in base.AERIAL_LANDINGS and s.motion not in (0x2A, base.LANDING_SPECIAL):
+                break
+            s = yield NEUTRAL
+        else:
+            return
+        for p in shine():
+            s = yield p
+
     def opt_zone(self, s):
         if self.cooldown:
             self.run(*[NEUTRAL] * 4)
@@ -139,6 +175,9 @@ class Fox(base.Mario):
         return self.hit(pad(B), 15)                      # laser them
 
     def air(self, s, plan):
+        if s.dist < 14 and abs(s.dy) < 10 and not self.cooldown and self.rng.random() < 0.35:
+            self.cooldown = 20
+            return self.hit(pad(B, sy=-80), 10)          # shine them in the air
         if s.dist < 18 and s.dy < -6 and not self.cooldown:
             self.cooldown = 20
             return self.hit(pad(cy=-80), 12)             # down-air onto them

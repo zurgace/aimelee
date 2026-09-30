@@ -90,6 +90,10 @@ LEDGE_ROLLS = (0x102, 0x103)
 ROLL = 30                                        # about how far a tech or getup roll goes
 ATTACKS = range(0x2C, 0x46)                      # jabs to aerials: they're swinging
 IDLE = (0x0E, 0x12, 0x14, 0x15, 0x2A)            # wait, turn, dash, run, landing: free to act
+# Free to act again: standing, turning, dashing, running, crouching; falling in the air.
+ACTIONABLE = (0x0E, 0x12, 0x14, 0x15, 0x27, 0x28, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22)
+PRESS_GUARD = 4        # frames after a press before its queued tail can be cut short
+MAX_WAIT = 30          # waited this long in a state that eats presses: press anyway (gomi_timing re-judges)
 
 # Settings her drills change (gomi_review.DRILLS); these defaults are her everyday game.
 KNOBS = {
@@ -109,13 +113,15 @@ OPTION_RANGES = {
     "wait": ("close", "mid", "far"), "shield": ("close", "mid"), "grab": ("close",), "dtilt": ("close",),
     "jab": ("close",), "smash": ("close",), "dash_attack": ("mid",), "sh_aerial": ("close", "mid"),
     "fullhop_aerial": ("close", "mid"), "zone": ("mid", "far"), "shine": ("close",),
+    "crouch_shine": ("close", "mid"),
 }
 MENUS = {
     "approach": ("dash_in", "grab", "dtilt", "jab", "dash_attack", "sh_aerial", "fullhop_aerial", "shine", "wait"),
-    "space": ("wait", "retreat", "walk_in", "zone", "fullhop_aerial", "shield", "dash_attack"),
-    "pressure": ("dash_in", "sh_aerial", "smash", "jab", "grab", "dtilt", "shine", "fullhop_aerial"),
-    "defend": ("shield", "retreat", "wait", "grab"),
-    "zone": ("zone", "retreat", "wait", "dash_in"),
+    "space": ("wait", "retreat", "walk_in", "zone", "fullhop_aerial", "shield", "dash_attack", "shine",
+              "crouch_shine"),
+    "pressure": ("dash_in", "sh_aerial", "smash", "jab", "grab", "dtilt", "shine", "fullhop_aerial", "crouch_shine"),
+    "defend": ("shield", "retreat", "wait", "grab", "shine", "crouch_shine"),
+    "zone": ("zone", "retreat", "wait", "dash_in", "shine"),
 }
 FACE_FIRST = ("grab", "dtilt", "jab", "smash", "zone", "shine")   # only when facing them
 BUSY = (set(range(0x2C, 0x41)) | set(AERIAL_LANDINGS) | {LANDING_SPECIAL, 0xE9, 0xEA, 0xEB}
@@ -258,6 +264,8 @@ class Mario:
         self.reads = {}   # gomi_reads: habit -> (the human's usual option, its share)
         self.knobs = dict(KNOBS)
         self.chooser = None   # (bucket, menu) -> option; gomi_brain sets gomi_options.Bandit.choose
+        import gomi_timing    # here, not at the top: gomi_timing reads this module's constants
+        self.timing = gomi_timing.Timing()   # eaten inputs; gomi_brain gives it her saved counts
         self.reset()
 
     def reset(self):
@@ -271,6 +279,11 @@ class Mario:
         self.waveland_tried = False
         self.reacted = False    # one follow-up or shield per time they're launched or swing
         self.used = Counter()   # techniques done this match (her drills count them)
+        self.since_press = 99   # frames since her last button press
+        self.waited = 0         # frames she held still to let a laggy state pass (gomi_timing)
+        self.wait_motion, self.wait_frames = None, 0   # how long she has waited in this state
+        if hasattr(self, "timing"):
+            self.timing.new_match()
 
     def run(self, *pads):
         self.queue.extend(pads)
@@ -300,8 +313,11 @@ class Mario:
     def step(self, s, plan):
         """The pad for this frame. `s` is a Situation, `plan` one of PLANS."""
         p = self.choose(s, plan)
-        if self.lcancel_now(s):
+        lcancel = self.lcancel_now(s)
+        if lcancel:
             p = replace(p, button=p.button | R, trigger_r=140)
+        self.timing.observe(s, p, lcancel=lcancel, mode=self.mode)
+        self.since_press = 0 if p.button & ~R or p.cstick_x or p.cstick_y else self.since_press + 1
         return p
 
     def lcancel_now(self, s):
@@ -345,6 +361,16 @@ class Mario:
                 return self.combo.send(s)
             except StopIteration:
                 self.combo = None
+        if (self.queue and s.motion in ACTIONABLE and self.since_press >= PRESS_GUARD
+                and all(q is NEUTRAL for q in self.queue)):
+            self.queue.clear()          # the move is over and she can act: don't stand there waiting it out
+        if s.motion != self.wait_motion:
+            self.wait_motion, self.wait_frames = s.motion, 0
+        if (not self.queue and self.timing.blocked(s.motion) and not (s.air and s.offstage)
+                and self.wait_frames < MAX_WAIT):
+            self.waited += 1
+            self.wait_frames += 1
+            return NEUTRAL              # a state that eats presses: wait it out, press when it ends
         if not self.queue or (s.motion in IDLE and all(q == NEUTRAL for q in self.queue)):
             react = self.react(s)
             if react is not None:
@@ -495,7 +521,7 @@ class Mario:
         fell = False
         for _ in range(50):
             if not s.air:
-                return
+                return s                                 # landed: the caller may follow up
             if fast_fall and not fell and s.vy < 0:
                 fell = True
                 s = yield pad(sy=-80)                    # fast fall: a fresh tap down
@@ -666,7 +692,7 @@ class Mario:
 
     # ---- options: her menu, and each option's inputs ----------------------
 
-    OPTIONS = frozenset(OPTION_RANGES) - {"shine"}   # what this character can do (Fox adds the shine)
+    OPTIONS = frozenset(OPTION_RANGES) - {"shine", "crouch_shine"}   # what he can do (Fox adds the shine)
 
     def bucket(self, s):
         """(range, their state, her spot): the situation her options are scored in."""
@@ -744,8 +770,8 @@ class Mario:
         return self.retreat(s, 6)
 
     def opt_wait(self, s):
-        self.run(*[NEUTRAL] * 14)                        # stand there: bait a whiff
-        return NEUTRAL
+        self.run(*[pad() for _ in range(14)])            # stand there: bait a whiff (not cut short: not NEUTRAL)
+        return pad()
 
     def opt_shield(self, s):
         if s.shield < 25:

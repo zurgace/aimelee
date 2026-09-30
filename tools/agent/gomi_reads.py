@@ -60,6 +60,7 @@ COPY_LINES = {
 OPTION_STARTS = {0xD4: "grab", 0xD6: "grab", 0x39: "dtilt", 0x2C: "jab", 0x32: "dash_attack", 0xB2: "shield",
                  **{m: "smash" for m in range(0x3A, 0x41)}}
 ROLLS = (0xE9, 0xEA)
+CROUCHING = (0x27, 0x28)         # squat, squat wait
 BLASTER_STARTS = (0x155, 0x158)  # Fox's and Falco's laser, on the ground and in the air: zoning
 SH_HEIGHT = 22         # an aerial started below this after a jump: a short hop
 
@@ -265,7 +266,7 @@ class Reader:
         if now in ROLLS and not opp.in_air:
             option = "retreat" if toward(opp, now == 0xE9, me.pos_x) == "away" else None
         if now == SHINE_START and opp.ckind in SHINERS:
-            option = "shine"
+            option = "crouch_shine" if was in CROUCHING else "shine"
         if now in BLASTER_STARTS and opp.ckind in SHINERS:
             option = "zone"
         if now in mm.AERIALS and opp.in_air and not self.swung and self.t - self.takeoff_at <= 20:
