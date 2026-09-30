@@ -36,6 +36,7 @@ folder per character she plays (mario/, fox/):
   drill.json        what she practises next match, in her words, and its baseline
   options.json      what each option has traded, per situation and opponent
   teacher.json      (falco/) what the replays taught her
+  clips.json        (falco/) her teachers' inputs, in clips, by situation (gomi_clips.py)
 and rival.json, what she has noticed about the human (for all her characters).
 
 Her Discord bot (gomihyu) posts what she says: a file per match and per
@@ -65,6 +66,7 @@ from pathlib import Path
 import bridge
 import falco_moves
 import fox_moves
+import gomi_clips
 import gomi_handbook
 import gomi_options
 import gomi_reads
@@ -89,6 +91,7 @@ SAY_EVERY_S = 30.0
 WAITING_WARN_S = 120.0  # a taunt or session end older than this at match start: is her bot running?
 HELD_WARN_S = 40 * 60   # a match: her bot holds those for the session, but not this long
 FAILURES_BEFORE_RULES = 3
+COPY_SHARE = 0.6        # of her choices in neutral, a teacher's clip (when replays taught her the character)
 
 
 
@@ -294,6 +297,9 @@ class GomiBrain:
         self.char_dir = self.dir / moves.NAME.lower()
         self.scoreboard = Scoreboard(self.char_dir / "scoreboard.json")
         self.teacher = gomi_replays.Teacher(self.char_dir / "teacher.json")   # {} unless replays taught her
+        self.clips = gomi_clips.Clips(self.char_dir / "clips.json", self.seed)  # and their clips
+        if self.clips:
+            self.player.clips, self.player.copy_share = self.clips, COPY_SHARE
         self.player.timing = gomi_timing.Timing(self.char_dir / "timing.json")  # her eaten inputs, by state
         self.drill = self.load_drill()
         self.apply_skills()
@@ -361,6 +367,16 @@ class GomiBrain:
         self.log(f"Gomihyu plays {self.moves.NAME} vs {self.opponent} ({self.llm.model}; "
                  f"{len(self.lessons)} lessons, {self.scoreboard.data['matches']} matches played)")
         self.warn_if_waiting()
+
+    def copy_line(self):
+        """The review's line on the clips she played from her teachers, or None."""
+        n, mean = self.options.this_match("copy")
+        if not self.player.clips or not n:
+            return None
+        who = self.clips.name(self.clips.owner())
+        times = "Once" if n == 1 else f"{n} times"
+        return (f"{times} you played a move copied straight from {who}'s replays (or another teacher's); "
+                f"those traded {mean:+.0f}% a try")
 
     def option_priors(self):
         """Starting guesses for her options from what she has read of the human."""
@@ -467,12 +483,13 @@ class GomiBrain:
         eaten = timing.summary()
         if eaten:
             self.log(f"inputs eaten: {eaten}")
+        copied = self.copy_line()
         metrics = self.review.metrics(self.player.used)
         metrics["eaten_share"] = round(timing.share(), 2)
         record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "opponent": self.opponent, "stage": self.stage,
                   "won": won, "stocks": [my_stocks, their_stocks], "percent": [my_pct, their_pct],
                   "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned,
-                  "review": self.review.summary() + ([eaten] if eaten else []), "metrics": metrics,
+                  "review": self.review.summary() + [ln for ln in (eaten, copied) if ln], "metrics": metrics,
                   "options": {"different": variety, "most": favourites}}
         if self.drill:
             result = gomi_review.judge(self.drill["drill"], self.drill["goal"], self.drill.get("baseline", 0), metrics)
@@ -581,7 +598,7 @@ class GomiBrain:
         lessons = "\n".join(f"- {ln}" for ln in self.lessons) or "- (none yet: this is your first match)"
         board = "\n".join(f"- {ln}" for ln in self.scoreboard.lines(self.opponent)) or "- (no numbers yet)"
         rival = "\n".join(f"- {ln}" for ln in self.rival.lines()) or "- (nothing yet)"
-        taught = "".join(f"- {ln}\n" for ln in self.teacher.lines())
+        taught = "".join(f"- {ln}\n" for ln in self.teacher.lines() + self.clips.lines())
         taught = f"What the replays taught you:\n{taught}\n" if taught else ""
         options = "\n".join(f"- {ln}" for ln in self.options.lines()) if self.options else ""
         options = options or "- (nothing yet: you'll try everything)"

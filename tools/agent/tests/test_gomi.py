@@ -526,10 +526,31 @@ class GomiTest(unittest.TestCase):
                          "what worked for her teachers, first")
         self.assertIn("What the replays taught you:", b.system)
         self.assertIn("Uni (20 games)", b.system)
+        self.assertIsNone(b.player.clips, "no clips yet")
         mario = Game(b)
         mario.start()
         b.stop_match.set()
         self.assertNotIn("What the replays taught you", b.system, "Mario learned nothing from them")
+
+    def test_falco_plays_their_clips(self):
+        import gomi_clips
+        clips = gomi_clips.Clips(Path(self.tmp.name) / "falco" / "clips.json")
+        clips.saw_player("ILYJ#309", "Uni")
+        clips.add("mid/grounded/level/center/facing", {"o": 5.0, "k": "move", "p": [[[0, 80, 0, 0, 0, 0], 12]]},
+                  "ILYJ#309")
+        clips.save()
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        g = Game(b)
+        g.me = fighter(x=-20, ckind=0x14)
+        g.start()
+        b.stop_match.set()
+        self.assertEqual(b.player.clips.owner(), "ILYJ#309")
+        self.assertEqual(b.player.copy_share, gomi_brain.COPY_SHARE)
+        self.assertIn("copied straight from Uni (1 clip)", b.system)
+        self.assertIsNone(b.copy_line(), "none played yet")
+        b.options.record(["mid/grounded/center", "copy", 90, 14.0])
+        self.assertEqual(b.copy_line(), "Once you played a move copied straight from Uni's replays "
+                                        "(or another teacher's); those traded +14% a try")
 
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")

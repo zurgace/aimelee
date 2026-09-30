@@ -582,9 +582,10 @@ class Launcher:
             def log(msg):
                 lines.append(msg)
                 self.lines_q.put(f"gomi: {msg}")
-            gomi_replays.learn(folder, os.environ.get("GOMI_DIR") or HERE / "gomi", log=log)
-            taught = gomi_replays.Teacher(Path(os.environ.get("GOMI_DIR") or HERE / "gomi") / "falco" /
-                                          "teacher.json").lines()
+            falco = Path(os.environ.get("GOMI_DIR") or HERE / "gomi") / "falco"
+            gomi_replays.learn(folder, falco.parent, log=log)
+            taught = (gomi_replays.Teacher(falco / "teacher.json").lines()
+                      + gomi_replays.gomi_clips.Clips(falco / "clips.json").lines())
             self.lines_q.put(("replays", "\n".join(lines + taught) or "No new replays with a Falco in them."))
         threading.Thread(target=learn, daemon=True).start()
 
