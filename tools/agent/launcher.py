@@ -111,6 +111,7 @@ def status_for(line, brain="auto"):
         ("play: timing", "setup", "Timing the model on this computer (first time only)..."),
         ("play: slippi-ai is not available", "model", "Newer Phillip unavailable: the 2017 agents play"),
         ("slippi: model ready", "ai", "AI ready: pick your characters and play"),
+        ("slippi: Gomihyu's Falco ready", "ai", "AI ready: pick your characters and play"),
         ("agent: client dropped", "ai", "The AI disconnected; it restarts by itself..."),
         ("play: agent exited", "ai", "The AI stopped; restarting it..."),
     ]
@@ -131,6 +132,12 @@ def status_for(line, brain="auto"):
     m = re.match(r"gomi: Gomihyu plays (\w+) vs (.+?) \(", line)
     if m:
         return "match", f"This match: Gomihyu plays {m.group(1)} vs {m.group(2)}"
+    m = re.match(r"gomi: Gomihyu's (\w+) vs (.+?) is the network trained on (.+?)'s replays", line)
+    if m:
+        return "match", f"This match: {m.group(1)} vs {m.group(2)}, played like {m.group(3)}; Gomi watches"
+    m = re.match(r"play: her Falco is the network trained on (.+?)'s replays \((.+?)\)", line)
+    if m:
+        return "gomi", f"Her Falco plays like {m.group(1)} (trained on {m.group(2)})"
     m = re.match(r"agent: (Gomihyu doesn't play .+?);", line)
     if m:
         return "match", "This match: " + m.group(1) + " (pick Mario, Fox or Falco for P2)"
@@ -171,6 +178,29 @@ def status_for(line, brain="auto"):
     if m and "slippi-ai" not in line:
         return "match", "This match: the 2017 agent plays " + m.group(1)
     return None
+
+
+def gomi_dir(environ=os.environ):
+    return Path(environ.get("GOMI_DIR") or HERE / "gomi")
+
+
+def trained_text(gomi):
+    """The launcher's line on her Falco trained on the user's replays (gomi_train.py)."""
+    import json
+
+    try:
+        info = json.loads((Path(gomi) / "falco" / "model.json").read_text())
+    except (OSError, ValueError):
+        return "not trained yet: she plays Falco on her own rules"
+    who = info.get("name") or info.get("player") or "you"
+    text = f"plays like {who} ({info.get('games', '?')} games"
+    if info.get("base_loss") and info.get("loss") is not None:
+        text += f", {1 - info['loss'] / info['base_loss']:.0%} closer"
+    return text + ")" + ("" if info.get("done") else "; more training helps")
+
+
+def train_command(python, replays, gomi):
+    return [str(python), "-u", str(HERE / "gomi_train.py"), "--replays", str(replays), "--gomi-dir", str(gomi)]
 
 
 def failure_text(lines):
@@ -403,6 +433,8 @@ class Launcher:
         self.settings = play.load_settings()
         self.opts = load_options(self.settings)
         self.proc = None
+        self.trainer = None      # gomi_train.py, while it runs
+        self.logfile = None      # ai-melee.log, while play.py runs
         self.stopping = False
         self.lines = []
         self.lines_q = queue.Queue()
@@ -461,6 +493,13 @@ class Launcher:
         self.replays_label.pack(side="left", padx=6)
         ttk.Button(replays, text="Teach Gomi from replays...", command=self.choose_replays).pack(side="right")
         self.show_replays()
+        trained = ttk.Frame(ai)
+        trained.pack(fill="x", pady=(4, 0))
+        ttk.Label(trained, text="Her Falco:").pack(side="left")
+        self.trained_label = ttk.Label(trained, text=trained_text(gomi_dir()), wraplength=330, justify="left")
+        self.trained_label.pack(side="left", padx=6)
+        self.train_button = ttk.Button(trained, text="Train on my replays", command=self.train)
+        self.train_button.pack(side="right")
         self.gomi_changed()
         game = ttk.LabelFrame(self.options, text="Game", padding=8)
         game.pack(fill="x", pady=(8, 0))
@@ -589,6 +628,71 @@ class Launcher:
             self.lines_q.put(("replays", "\n".join(lines + taught) or "No new replays with a Falco in them."))
         threading.Thread(target=learn, daemon=True).start()
 
+    def train(self):
+        """Train her Falco on the replays' owner (gomi_train.py, in slippi-ai's environment), or stop."""
+        if self.trainer is not None:
+            if self.trainer.poll() is None:
+                self.trainer.terminate()     # the best model so far is already saved
+            return
+        folder = self.opts.get("replays")
+        if not folder:
+            self.messagebox.showinfo("AI-Melee", "First pick your Slippi replay folder (\"Teach Gomi from "
+                                     "replays...\"): her Falco trains on your games in it.", parent=self.root)
+            return
+        if not self.log_shown:
+            self.toggle_log()
+        self.train_button.configure(text="Stop training")
+        self.trained_label.configure(text="getting ready...")
+
+        def say(line):
+            self.lines_q.put(("train", line))
+
+        def run():
+            import contextlib
+            import io
+
+            import gomi_train
+
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                python = play.ensure_slippi_env()
+                base = gomi_train.find_base(gomi_dir()) or (play.ensure_slippi_model(None) if python else None)
+            for line in out.getvalue().splitlines():
+                say(line)
+            if python is None:
+                self.lines_q.put(("trained", "Training needs the newer Phillip's environment (slippi-ai), "
+                                  "which couldn't be set up: see the log."))
+                return
+            if base is None and not (gomi_dir() / "falco" / "model").is_file():
+                self.lines_q.put(("trained", "Training starts from one of slippi-ai's networks, and none could "
+                                  "be downloaded: see the log."))
+                return
+            lines = []
+            proc = self.trainer = subprocess.Popen(
+                train_command(python, folder, gomi_dir()), cwd=str(HERE), stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
+                errors="replace", bufsize=1, creationflags=CREATE_NO_WINDOW if WINDOWS else 0,
+                env=dict(os.environ, PYTHONIOENCODING="utf-8", TF_CPP_MIN_LOG_LEVEL="3"))
+            for line in proc.stdout:
+                line = line.rstrip("\n")
+                say(line)
+                if line.startswith("gomi-train: "):
+                    lines.append(line[len("gomi-train: "):])
+            proc.wait()
+            stopped = proc.returncode not in (0, 2)
+            done = [ln for ln in lines if "learned from your games" in ln or "already learned" in ln
+                    or "no better" in ln or "no Slippi" in ln or "no slippi-ai network" in ln]
+            text = done[-1] if done else (lines[-1] if lines else "it stopped before it began (see the log)")
+            self.lines_q.put(("trained", ("Training stopped; the best so far is kept.\n\n" if stopped else "")
+                              + text))
+        threading.Thread(target=run, daemon=True).start()
+
+    def training_over(self, text):
+        self.trainer = None
+        self.train_button.configure(text="Train on my replays")
+        self.trained_label.configure(text=trained_text(gomi_dir()))
+        self.messagebox.showinfo("AI-Melee", "Gomi's Falco: " + text, parent=self.root)
+
     def save(self):
         self.opts.update(brain=self.brain.get(), p2_pick=self.p2_pick.get(), legal_stages=self.legal.get(),
                          gomi=self.gomi.get(), box=self.box.get())
@@ -599,6 +703,13 @@ class Launcher:
     def play(self):
         if not self.opts.get("disc") and not self.choose_disc():
             return
+        if self.trainer is not None and self.trainer.poll() is None:
+            if not self.messagebox.askyesno("AI-Melee", "Gomi's Falco is still training, and the game would "
+                                            "compete with it for the CPU. Stop training and play? (The best "
+                                            "model so far is kept; train again later to go on.)",
+                                            parent=self.root):
+                return
+            self.trainer.terminate()
         self.save()
         self.lines = []
         self.status = {}
@@ -635,6 +746,18 @@ class Launcher:
                 line = self.lines_q.get_nowait()
                 if line is None:
                     self.finished()
+                    continue
+                if isinstance(line, tuple) and line[0] == "train":    # gomi_train.py's progress
+                    self.append(line[1])
+                    m = re.match(r"gomi-train: (step \d+/\d+): ([\d.]+) error.*?about (\d+) min", line[1])
+                    if m:
+                        self.trained_label.configure(text=f"training: {m.group(1)}, error {m.group(2)}, "
+                                                          f"about {m.group(3)} min to go")
+                    elif line[1].startswith("gomi-train: "):
+                        self.trained_label.configure(text="training: " + line[1][len("gomi-train: "):][:80])
+                    continue
+                if isinstance(line, tuple) and line[0] == "trained":
+                    self.training_over(line[1])
                     continue
                 if isinstance(line, tuple):              # the replays are read (choose_replays)
                     self.messagebox.showinfo("AI-Melee", "Gomi's Falco, from your replays:\n\n" + line[1],
@@ -679,6 +802,8 @@ class Launcher:
             self.end_play()
 
     def close(self):
+        if self.trainer is not None and self.trainer.poll() is None:
+            self.trainer.terminate()         # the best model so far is kept
         if self.proc and self.proc.poll() is None:
             self.end_play()
             try:

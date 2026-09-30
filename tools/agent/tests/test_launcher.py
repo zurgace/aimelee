@@ -125,6 +125,36 @@ class StatusTest(unittest.TestCase):
         self.assertIsNone(launcher.failure_text(["nothing"]))
 
 
+class TrainedTest(unittest.TestCase):
+    """Her Falco trained on the user's replays (gomi_train.py): the launcher's line and command."""
+
+    def test_the_line(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(launcher.trained_text(tmp), "not trained yet: she plays Falco on her own rules")
+            (Path(tmp) / "falco").mkdir()
+            info = {"player": "ILYJ#309", "name": "Uni", "games": 17, "loss": 3.94, "base_loss": 18.61}
+            (Path(tmp) / "falco" / "model.json").write_text(json.dumps(info))
+            self.assertEqual(launcher.trained_text(tmp), "plays like Uni (17 games, 79% closer); more training helps")
+            (Path(tmp) / "falco" / "model.json").write_text(json.dumps(dict(info, done=True)))
+            self.assertEqual(launcher.trained_text(tmp), "plays like Uni (17 games, 79% closer)")
+
+    def test_status_while_it_plays(self):
+        self.assertEqual(launcher.status_for("play: her Falco is the network trained on Uni's replays (17 games); "
+                                             "she watches it play", "gomi"),
+                         ("gomi", "Her Falco plays like Uni (trained on 17 games)"))
+        self.assertEqual(launcher.status_for("gomi: Gomihyu's Falco vs Fox is the network trained on Uni's replays "
+                                             "(17 games); she watches", "gomi"),
+                         ("match", "This match: Falco vs Fox, played like Uni; Gomi watches"))
+        self.assertEqual(launcher.status_for("slippi: Gomihyu's Falco ready (warm-up 6.1 s)", "gomi")[0], "ai")
+
+    def test_the_command(self):
+        cmd = launcher.train_command("/env/python", "/replays", "/gomi")
+        self.assertEqual(cmd[:3], ["/env/python", "-u", str(AGENT / "gomi_train.py")])
+        self.assertEqual(cmd[3:], ["--replays", "/replays", "--gomi-dir", "/gomi"])
+
+
 class ShortcutTest(unittest.TestCase):
     def test_entry_quotes_paths(self):
         entry = launcher.desktop_entry("/usr/bin/python3", "/home/a b/ai-melee/tools/agent/launcher.py", "/i.png")
@@ -248,9 +278,75 @@ WINDOW_RUN = textwrap.dedent("""
 """)
 
 
+TRAIN_RUN = textwrap.dedent("""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, sys.argv[1])
+    tmp, stop = Path(sys.argv[2]), sys.argv[3] == "stop"
+    import os
+    os.environ["GOMI_DIR"] = str(tmp / "gomi")
+    import play, launcher, gomi_train
+    play.SETTINGS = tmp / "settings.json"
+    play.ensure_slippi_env = lambda: sys.executable
+    gomi_train.find_base = lambda gomi, explicit=None: tmp / "base"
+    launcher.train_command = lambda python, replays, gomi: [python, "-u", str(tmp / "fake_train.py")]
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, scrolledtext, ttk
+    l = launcher.Launcher(tk, ttk, filedialog, messagebox, scrolledtext)
+    l.opts["replays"] = str(tmp)
+    orig = l.trained_label.configure
+    l.trained_label.configure = lambda **kw: (print("LABEL", kw.get("text"), flush=True), orig(**kw))
+    def info(title, text, parent=None):
+        print("INFO", text.replace(chr(10), " "), flush=True)
+        print("BUTTON", l.train_button.cget("text"), flush=True)
+        l.root.after(100, l.root.destroy)
+    messagebox.showinfo = info
+    l.root.after(200, l.train)
+    if stop:
+        l.root.after(2500, l.train)          # pressed again: Stop training
+    l.root.after(20000, l.root.destroy)
+    l.root.mainloop()
+""")
+
+FAKE_TRAIN = textwrap.dedent("""
+    import json, os, sys, time
+    from pathlib import Path
+    print("gomi-train: before: 18.61 error on your held-out games", flush=True)
+    print("gomi-train: step 100/300: 5.13 error on your held-out games (best 5.13, before 18.61); "
+          "about 5 min to go", flush=True)
+    falco = Path(os.environ["GOMI_DIR"]) / "falco"
+    falco.mkdir(parents=True, exist_ok=True)
+    (falco / "model").write_bytes(b"x")
+    (falco / "model.json").write_text(json.dumps({"name": "Uni", "games": 17, "loss": 5.13, "base_loss": 18.61}))
+    time.sleep(30 if len(sys.argv) > 1 else 0.5)
+    print("gomi-train: her Falco learned from your games: 18.61 -> 5.13 error on games she never saw (72% less)",
+          flush=True)
+""")
+
+
 @unittest.skipIf(importlib.util.find_spec("tkinter") is None or not shutil.which("xvfb-run"),
                  "needs tkinter and xvfb-run")
 class WindowTest(unittest.TestCase):
+    def train(self, stop):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = FAKE_TRAIN if not stop else FAKE_TRAIN.replace("len(sys.argv) > 1", "True")
+            (Path(tmp) / "fake_train.py").write_text(script)
+            r = subprocess.run(["xvfb-run", "-a", sys.executable, "-c", TRAIN_RUN, str(AGENT), tmp,
+                                "stop" if stop else "run"], capture_output=True, text=True, timeout=60)
+            return r
+
+    def test_train_button(self):
+        r = self.train(stop=False)
+        self.assertIn("LABEL training: step 100/300, error 5.13, about 5 min to go", r.stdout, r.stderr[-2000:])
+        self.assertIn("INFO Gomi's Falco: her Falco learned from your games: 18.61 -> 5.13", r.stdout)
+        self.assertIn("LABEL plays like Uni (17 games, 72% closer); more training helps", r.stdout)
+        self.assertIn("BUTTON Train on my replays", r.stdout)
+
+    def test_stop_training_keeps_the_best(self):
+        r = self.train(stop=True)
+        self.assertIn("INFO Gomi's Falco: Training stopped; the best so far is kept.", r.stdout, r.stderr[-2000:])
+        self.assertIn("LABEL plays like Uni (17 games, 72% closer)", r.stdout)
+
     def test_play_shows_status_then_returns_to_options(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "GALE01.iso").write_bytes(b"")
