@@ -359,6 +359,22 @@ def gomi_status():
     return f"Gomihyu plays Mario, Fox and Falco ({llm.model} via Ollama)"
 
 
+def gomi_falco_model():
+    """Her Falco trained on the user's replays (gomi_train.py), or None."""
+    path = Path(os.environ.get("GOMI_DIR") or HERE / "gomi") / "falco" / "model"
+    return path if path.is_file() else None
+
+
+def gomi_falco_status(model):
+    try:
+        info = json.loads(model.with_name("model.json").read_text())
+    except (OSError, ValueError):
+        info = {}
+    who = info.get("name") or info.get("player") or "your"
+    return (f"her Falco is the network trained on {who}'s replays ({info.get('games', '?')} games); "
+            "she watches it play")
+
+
 SHEIK = 0x13  # picked by holding A on Zelda as the match loads: not a character select icon
 
 
@@ -430,6 +446,17 @@ def main():
         agent_source = ["--gomi"]
         ai_chars = ",".join(str(c) for c in GOMI_CKINDS)
         print(f"play: {gomi_status()}; slippi-ai and the 2017 agents are off while she plays", flush=True)
+        falco = gomi_falco_model()
+        if falco is not None:
+            # Her Falco is the network trained on the user's replays (gomi_train.py): slippi-ai's
+            # environment runs it, and hosts her too.
+            slippi = ensure_slippi_env()
+            if slippi is not None:
+                python, agent_script = str(slippi), HERE / "slippi_agent.py"
+                agent_source = ["--gomi", "--gomi-falco", str(falco), "--async-inference"]
+                print(f"play: {gomi_falco_status(falco)}", flush=True)
+            else:
+                print("play: slippi-ai's environment isn't available: Gomihyu plays her Falco herself", flush=True)
     elif args.agent is not None:
         agent_source = ["--weights", str(ensure_weights(args))]
         char = agent_params(args.phillip, args.agent).get("char")

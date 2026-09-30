@@ -37,6 +37,8 @@ folder per character she plays (mario/, fox/):
   options.json      what each option has traded, per situation and opponent
   teacher.json      (falco/) what the replays taught her
   clips.json        (falco/) her teachers' inputs, in clips, by situation (gomi_clips.py)
+  model, model.json (falco/) the network trained on the user's replays (gomi_train.py): with it,
+                    it plays her Falco and she watches (slippi_agent.py --gomi-falco)
 and rival.json, what she has noticed about the human (for all her characters).
 
 Her Discord bot (gomihyu) posts what she says: a file per match and per
@@ -256,6 +258,7 @@ class GomiBrain:
         self.drill = None
         self.review = None
         self.options = None
+        self.watching = None   # model.json of the network playing for her this match (watching mode)
         self.use(mario_moves)
         self.priors = {}
         self.lock = threading.Lock()
@@ -326,17 +329,21 @@ class GomiBrain:
 
     # ---- the game thread -------------------------------------------------
 
-    def start_match(self, st, port, opp_port):
+    def start_match(self, st, port, opp_port, watching=None):
+        """A match starts. `watching`: a network trained on the human's replays plays her character
+        (slippi_agent.py), its model.json; she only watches: reads them, reviews it, posts about it."""
         opp = st.fighters[opp_port]
         self.use(CHARACTERS.get(st.fighters[port].ckind, mario_moves))
+        self.watching = watching
         self.port, self.opp_port = port, opp_port
         self.opponent = roster.display(opp.ckind)
         self.stage = st.stage
         self.player.reset()
         self.reader = gomi_reads.Reader(self.rival) if opp.slot_type == 0 else None  # humans only
-        self.plan = "space"
+        self.plan = "net" if watching is not None else "space"
         self.plan_since = time.monotonic()
         self.tally = {p: new_tally() for p in self.moves.PLANS}
+        self.tally["net"] = new_tally()
         self.recover_deaths = 0
         self.last = None
         self.last_frame = None
@@ -346,6 +353,8 @@ class GomiBrain:
         self.priors = gomi_handbook.priors(self.moves.NAME, self.opponent)
         self.review = gomi_review.MatchLog()
         option_priors = self.option_priors()
+        if watching is not None:
+            self.drill = None          # the network doesn't practise her drills
         if self.drill:
             info = gomi_review.drill_info(self.drill["drill"])
             self.player.knobs.update(info["knobs"])
@@ -359,14 +368,34 @@ class GomiBrain:
                                            head_start=self.rival.options(),  # what works for the human
                                            teacher=self.teacher.options())   # and for the players in replays
         self.player.chooser = self.options.choose
-        self.system = self.match_prompt()
         self.active = True
         self.stop_match = threading.Event()
-        self.planner = threading.Thread(target=self.plan_loop, args=(self.stop_match,), daemon=True)
-        self.planner.start()
-        self.log(f"Gomihyu plays {self.moves.NAME} vs {self.opponent} ({self.llm.model}; "
-                 f"{len(self.lessons)} lessons, {self.scoreboard.data['matches']} matches played)")
+        if watching is not None:
+            self.log(f"Gomihyu's {self.moves.NAME} vs {self.opponent} is the network trained on "
+                     f"{self.net_name()}'s replays ({watching.get('games', '?')} games); she watches")
+        else:
+            self.system = self.match_prompt()
+            self.planner = threading.Thread(target=self.plan_loop, args=(self.stop_match,), daemon=True)
+            self.planner.start()
+            self.log(f"Gomihyu plays {self.moves.NAME} vs {self.opponent} ({self.llm.model}; "
+                     f"{len(self.lessons)} lessons, {self.scoreboard.data['matches']} matches played)")
         self.warn_if_waiting()
+
+    def net_name(self):
+        return (self.watching or {}).get("name") or (self.watching or {}).get("player") or "your"
+
+    def watch(self, st, port, opp_port):
+        """A frame of a match the network plays for her: she reads the human and keeps the review."""
+        me, opp = st.fighters[port], st.fighters[opp_port]
+        if self.last_frame is not None and st.scene_frame <= self.last_frame:
+            return
+        self.last_frame = st.scene_frame
+        s = self.moves.situation(me, opp, st.stage)
+        if self.reader is not None:
+            self.read_them(opp, me, s.dist, s.edge)
+        self.count("net", me, opp)
+        self.review.frame(me, opp, "net", s.offstage, s.opp_offstage)
+        self.snapshot = (s, me.stocks, opp.stocks, "net")
 
     def copy_line(self):
         """The review's line on the clips she played from her teachers, or None."""
@@ -471,7 +500,7 @@ class GomiBrain:
         my_stocks, my_pct, their_stocks, their_pct = self.last
         won = my_stocks > their_stocks or (my_stocks == their_stocks and my_pct < their_pct)
         plans = {p: t for p, t in self.tally.items() if t["frames"]}
-        self.scoreboard.add(self.opponent, plans, won)
+        self.scoreboard.add(self.opponent, {} if self.watching is not None else plans, won)
         self.scoreboard.save()
         self.rival.save()
         learned = self.reader.learned if self.reader is not None else []
@@ -491,11 +520,16 @@ class GomiBrain:
                   "plans": plans, "recovery_deaths": self.recover_deaths, "learned": learned,
                   "review": self.review.summary() + [ln for ln in (eaten, copied) if ln], "metrics": metrics,
                   "options": {"different": variety, "most": favourites}}
+        if self.watching is not None:
+            record["net"] = dict(self.watching)
+            record["review"].insert(0, f"Your {self.moves.NAME} was the network trained on {self.net_name()}'s "
+                                       "own replays: it played every frame, the way they play; you watched")
+            record.pop("options")
         if self.drill:
             result = gomi_review.judge(self.drill["drill"], self.drill["goal"], self.drill.get("baseline", 0), metrics)
             record["drill_result"] = result
             self.log(f"her practice: {result['text']}")
-        ranked = sorted(plans, key=lambda p: self.scoreboard.score(p, self.opponent))
+        ranked = sorted(plans, key=lambda p: self.scoreboard.score(p, self.opponent)) if self.watching is None else []
         best = f"; best plan so far {ranked[-1]}, worst {ranked[0]}" if len(ranked) > 1 else ""
         self.log(f"match over: {'won' if won else 'lost'} {my_stocks}-{their_stocks} stocks vs "
                  f"{self.opponent}{best}")
@@ -522,7 +556,8 @@ class GomiBrain:
         ctx.char_dir.mkdir(parents=True, exist_ok=True)
         with open(ctx.char_dir / "matches.jsonl", "a") as f:
             f.write(json.dumps(record) + "\n")
-        self.save_drill(ctx, thoughts, record["metrics"])
+        if "net" not in record:
+            self.save_drill(ctx, thoughts, record["metrics"])
         self.post(record, thoughts, ctx)
 
     def save_drill(self, ctx, thoughts, metrics):
@@ -705,6 +740,8 @@ class GomiBrain:
         fallback = gomi_review.pick_drill(record["metrics"], ctx.skills)
         thoughts = {"line": "", "lessons": lessons, "review": "", "drill": fallback,
                     "goal": gomi_review.drill_info(fallback)["goal"]}
+        if record.get("net"):
+            thoughts.update(drill=None, goal="")
         rows = "\n".join(f"- {p}: {t['frames'] / 60:.0f}s, dealt {t['dealt']}%, took {t['taken']}%, "
                          f"KOs {t['kos']}, lost {t['deaths']} stocks" for p, t in record["plans"].items())
         board = "\n".join(f"- {ln}" for ln in ctx.scoreboard.lines(ctx.opponent)) or "- (none)"
@@ -737,6 +774,19 @@ class GomiBrain:
                 'line about this match, "review": one or two sentences on what went well and what went badly, '
                 'naming the moves and situations, "drill": one of the drills, "goal": what you will work on '
                 "next match, one sentence in your own words}.")
+        if record.get("net"):
+            # The network trained on their replays played: her lessons and drills are for her own
+            # play, so they stay; she reviews the match and says what it shows.
+            who = record["net"].get("name") or record["net"].get("player") or "the human"
+            user = (f"The match against {ctx.opponent} is over. Your {ctx.moves.NAME} was the network trained "
+                    f"on {who}'s own replays: it played every frame, the way they play, and you watched. It "
+                    f"{'WON' if record['won'] else 'LOST'}: stocks {record['stocks'][0]} to "
+                    f"{record['stocks'][1]}; percent {record['percent'][0]}% vs {record['percent'][1]}%.\n"
+                    f"What happened:\n{review}\nWhat you've noticed about them: {noticed}.\n\n"
+                    'Answer in JSON: {"lessons": [] (leave it empty), "line": one dramatic in-character line '
+                    'about this match, "review": one or two sentences on what went well and what went badly, '
+                    'naming the moves and situations, "drill": any of the drills, "goal": one sentence on what '
+                    "this match shows about playing like them}.")
         system = f"{persona(ctx.moves.NAME)}\n\nYou just finished a match and are thinking it over."
         if self.llm_down:
             self.llm_down = self.llm.check()
@@ -750,12 +800,14 @@ class GomiBrain:
             self.log(f"couldn't reflect on the match ({e}); her lessons stay as they were")
             return thoughts
         new = [str(ln).strip() for ln in ans.get("lessons", []) if str(ln).strip()][:MAX_LESSONS]
+        if record.get("net"):
+            new = []                   # not her own play: her lessons stay as they are
         if new:
             write_lessons(ctx.char_dir / "lessons.md", new)
             thoughts["lessons"] = new
         thoughts["line"] = str(ans.get("line") or "").strip()
         thoughts["review"] = str(ans.get("review") or "").strip()
-        if ans.get("drill") in drills:
+        if ans.get("drill") in drills and not record.get("net"):
             thoughts["drill"] = ans["drill"]
             thoughts["goal"] = gomi_review.drill_info(ans["drill"])["goal"]
         if str(ans.get("goal") or "").strip():
@@ -764,7 +816,8 @@ class GomiBrain:
             self.log(f'after the match: "{thoughts["line"][:200]}"')
         if thoughts["review"]:
             self.log(f'her review: "{thoughts["review"][:300]}"')
-        self.log(f"{len(new)} lessons in {ctx.char_dir / 'lessons.md'}")
+        if not record.get("net"):
+            self.log(f"{len(new)} lessons in {ctx.char_dir / 'lessons.md'}")
         return thoughts
 
 

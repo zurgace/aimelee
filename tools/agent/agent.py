@@ -281,6 +281,18 @@ class Runner:
             self.pad = self.po.dolphin_pad(c)
         return self.pad
 
+    def watch_for(self, st, port, model_info):
+        """slippi_agent: a network trained on the human's replays plays her character this match
+        (`model_info`: its model.json); Gomihyu watches it, frame by frame."""
+        me = st.fighters[port]
+        if self.opp_port is None:
+            self.opp_port = next((i for i, f in enumerate(st.fighters) if f.present and i != port), None)
+            if self.opp_port is not None and me.present:
+                self.gomi.start_match(st, port, self.opp_port, watching=model_info)
+                self.gomi_match = True
+        if self.gomi_match and me.present:
+            self.gomi.watch(st, port, self.opp_port)
+
     # ---- connection -----------------------------------------------------
 
     def serve(self, client):

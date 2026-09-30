@@ -246,6 +246,42 @@ class LoopTest(unittest.TestCase):
         fight = {t: r for t, r in game.replies.items() if t > game.menu_ticks}
         self.assertFalse(any(fl & bridge.IN_RELEASE for fl, _ in fight.values()))
 
+    def test_gomi_watches_her_trained_falco(self):
+        """--gomi --gomi-falco: her Falco is the network trained on the user's replays (any model does
+        for the plumbing); Gomihyu watches it, and nothing else is loaded."""
+        import json
+        sys.path.insert(0, str(HERE))
+        from test_gomi import FakeOllama
+
+        fake = FakeOllama(plan="approach")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                falco = Path(tmp) / "gomi" / "falco"
+                falco.mkdir(parents=True)
+                os.symlink(os.path.abspath(os.environ["SLIPPI_TEST_MODEL"]), falco / "model")
+                (falco / "model.json").write_text(json.dumps({"player": "ILYJ#309", "name": "Uni", "games": 17}))
+                sock = str(Path(tmp) / "agent.sock")
+                game = FakeGame(sock, p2_ckind=0x14)
+                game.start()
+                env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
+                           GOMI_OUTBOX=str(Path(tmp) / "outbox"))
+                proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"), "--gomi",
+                                       "--gomi-falco", str(falco / "model"), "--socket", sock,
+                                       "--exit-with-game", "--async-inference"],
+                                      capture_output=True, text=True, timeout=300, env=env)
+                game.join(30)
+        finally:
+            fake.close()
+        self.assertEqual(proc.returncode, 0, proc.stderr[-3000:])
+        self.assertIn("Gomihyu's Falco: the network trained on Uni's replays (17 games)", proc.stdout)
+        self.assertIn("Falco: the network trained on your replays plays P2; Gomihyu watches", proc.stdout)
+        self.assertIn("gomi: Gomihyu's Falco vs Fox is the network trained on Uni's replays", proc.stdout)
+        self.assertNotIn("slippi-ai model", proc.stdout, "no other model loaded")
+        fight = {t: r for t, r in game.replies.items() if t > game.menu_ticks}
+        self.assertEqual(len(fight), len(list(chunks())) - 1, "one reply per match tick")
+        self.assertFalse(any(fl & bridge.IN_RELEASE for fl, _ in fight.values()))
+        self.assertTrue(any(p != bridge.Pad.neutral() for _, p in fight.values()), "the network moves")
+
 
 if __name__ == "__main__":
     unittest.main()

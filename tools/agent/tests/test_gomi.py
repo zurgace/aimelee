@@ -552,6 +552,46 @@ class GomiTest(unittest.TestCase):
         self.assertEqual(b.copy_line(), "Once you played a move copied straight from Uni's replays "
                                         "(or another teacher's); those traded +14% a try")
 
+    def test_she_watches_the_network_play_her_falco(self):
+        """slippi_agent --gomi-falco: the network trained on the human's replays plays; she reads them,
+        reviews the match and posts it, and her own Falco's lessons and drill are left alone."""
+        fake = FakeOllama(plan="approach")
+        try:
+            b = self.brain(fake.url)
+            char = Path(self.tmp.name) / "falco"
+            char.mkdir(parents=True)
+            (char / "lessons.md").write_text("- Laser them at range.\n")
+            g = Game(b)
+            g.me = fighter(x=-20, ckind=0x14)
+            info = {"player": "ILYJ#309", "name": "Uni", "games": 17}
+            b.start_match(state(g.frame, g.me, g.opp), 1, 0, watching=info)
+            self.assertIsNone(b.planner, "no plans: the network plays")
+            self.assertTrue(any("is the network trained on Uni's replays (17 games); she watches" in ln
+                                for ln in self.logs), self.logs)
+            for pct in range(10, 60, 10):
+                g.frame += 1
+                g.opp.percent = pct
+                b.watch(state(g.frame, g.me, g.opp), 1, 0)
+            b.watch(state(g.frame, g.me, g.opp), 1, 0)          # the same frame again: counted once
+            self.assertEqual(b.tally["net"]["dealt"], 40)
+            b.end_match()
+            b.close()
+            record = json.loads((char / "matches.jsonl").read_text().splitlines()[-1])
+            self.assertEqual(record["net"], info)
+            self.assertIn("network trained on Uni's own replays", record["review"][0])
+            self.assertIsNone(record["next_drill"])
+            self.assertFalse((char / "drill.json").exists(), "no drill from a match she didn't play")
+            self.assertEqual((char / "lessons.md").read_text(), "- Laser them at range.\n", "lessons untouched")
+            self.assertEqual(b.scoreboard.data["matches"], 1)
+            self.assertEqual(b.scoreboard.data["all"], {}, "no plan numbers from the network's match")
+            reflect = next(r for r in fake.requests if "lessons" in r["format"]["properties"])
+            self.assertIn("was the network trained on Uni's own replays", reflect["messages"][-1]["content"])
+            event = next(e for e in self.match_events())
+            self.assertEqual((event["character"], event["drill"]), ("Falco", None))
+            self.assertTrue(event["notes"][0].startswith("Your Falco was the network"), event["notes"])
+        finally:
+            fake.close()
+
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")
         self.play_a_match(b, fall_offstage=2)

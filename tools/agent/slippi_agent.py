@@ -13,10 +13,18 @@ controller it outputs becomes the next tick's pad.
 Per match, from the agent port's character: slippi-ai plays it when the
 model covers that character; otherwise, with --roster, the 2017 Phillip
 agents (agent.py's roster) do; otherwise the port is released for the match.
+
+    slippi_agent.py --gomi --gomi-falco gomi/falco/model --exit-with-game
+
+With --gomi, Gomihyu plays Mario, Fox and Falco (agent.py hosts her); with
+--gomi-falco, her Falco is that model instead (gomi_train.py: slippi-ai's
+network fine-tuned on the user's own replays), and she watches its matches.
 """
 
 import argparse
+import json
 import os
+import signal
 import sys
 import time
 import types
@@ -229,12 +237,23 @@ class SlippiBrain:
 
 # ---------------------------------------------------------------- the loop
 
+FALCO = 0x14  # CKind
+
+
 class Runner:
     def __init__(self, args):
         self.args = args
-        self.brain = SlippiBrain(args.model, async_inference=args.async_inference)
+        self.brain = SlippiBrain(args.model, async_inference=args.async_inference) if args.model else None
+        self.falco = None           # Gomihyu's Falco: a network trained on the user's replays
+        self.falco_info = {}
+        if args.gomi_falco is not None:
+            self.falco = SlippiBrain(args.gomi_falco, async_inference=args.async_inference)
+            try:
+                self.falco_info = json.loads(Path(args.gomi_falco).with_name("model.json").read_text())
+            except (OSError, ValueError):
+                self.falco_info = {}
         self.classic = None
-        if args.roster is not None:
+        if args.roster is not None or args.gomi:
             import agent as classic_agent
 
             ns = types.SimpleNamespace(roster=args.roster, weights=None, char=None, epsilon=args.epsilon,
@@ -243,9 +262,14 @@ class Runner:
             self.classic = classic_agent.Runner(ns)
         import melee
         self.melee = melee
-        names = ", ".join(sorted(display(c) for c in self.brain.characters))
-        self.log(f"slippi-ai model {Path(args.model).name}: {len(self.brain.characters)} characters "
-                 f"({names}), {self.brain.summary.delay} frames of delay")
+        if self.brain is not None:
+            names = ", ".join(sorted(display(c) for c in self.brain.characters))
+            self.log(f"slippi-ai model {Path(args.model).name}: {len(self.brain.characters)} characters "
+                     f"({names}), {self.brain.summary.delay} frames of delay")
+        if self.falco is not None:
+            who = self.falco_info.get("name") or self.falco_info.get("player") or "your"
+            self.log(f"Gomihyu's Falco: the network trained on {who}'s replays "
+                     f"({self.falco_info.get('games', '?')} games)")
 
     def log(self, msg):
         if not self.args.quiet:
@@ -253,10 +277,12 @@ class Runner:
 
     def serve(self, client):
         port = client.hello.agent_port
-        if self.args.brain != "classic":
-            took = self.brain.prepare(port + 1)
-            if took is not None:
-                self.log(f"model ready (warm-up {took:.1f} s)")
+        for brain, what in ((self.brain if self.args.brain != "classic" else None, "model"),
+                            (self.falco, "Gomihyu's Falco")):
+            if brain is not None:
+                took = brain.prepare(port + 1)
+                if took is not None:
+                    self.log(f"{what} ready (warm-up {took:.1f} s)")
         if client.hello.proto_version < 2:
             self.log("this game build does not stream Slippi events (bridge v1): "
                      "only the classic agents can play")
@@ -276,7 +302,7 @@ class Runner:
             if new_frames:
                 latest = new_frames[-1]
             if not st.in_fight:
-                if in_fight and mode == "classic":
+                if in_fight and mode in ("classic", "gomi_net"):
                     self.classic.match_over(st)
                 in_fight = False
                 mode = None
@@ -295,6 +321,10 @@ class Runner:
             if mode == "slippi":
                 for gs in new_frames:  # one step per game frame; paused ticks hold the pad
                     pad = self.brain.step(gs)
+            elif mode == "gomi_net":
+                for gs in new_frames:
+                    pad = self.falco.step(gs)
+                self.classic.watch_for(st, port, self.falco_info)
             elif mode == "classic":
                 pad = self.classic.pad_for(st, port)
             else:
@@ -312,10 +342,22 @@ class Runner:
         me = st.fighters[port]
         if not me.present:
             return None
+        if self.falco is not None and self.classic is not None and me.ckind == FALCO:
+            if latest is None or (port + 1) not in latest.players:
+                self.log("no Slippi events from the game this match: Gomihyu plays her Falco herself")
+            else:
+                others = [p for p in sorted(latest.players) if p != port + 1]
+                if len(others) == 1:
+                    self.falco.start_match(port + 1, others[0])
+                    self.classic.match_start(st, port)
+                    self.log(f"Falco: the network trained on your replays plays P{port + 1}; Gomihyu watches")
+                    return "gomi_net"
         if self.classic is not None and self.classic.gomi_plays(me.ckind):
             self.classic.match_start(st, port)  # Gomihyu, whichever brain is chosen
             return "classic"
-        if latest is not None and (port + 1) in latest.players:
+        if self.brain is None:
+            pass
+        elif latest is not None and (port + 1) in latest.players:
             ports = sorted(latest.players)
             character = latest.players[port + 1].character
             others = [p for p in ports if p != port + 1]
@@ -338,7 +380,7 @@ class Runner:
         import roster
 
         parts = [f"no AI plays {roster.display(ckind)}; P{port + 1} stands still this match."]
-        if self.args.brain != "classic":
+        if self.args.brain != "classic" and self.brain is not None:
             parts.append("slippi-ai plays: " + ", ".join(sorted(display(c) for c in self.brain.characters)) + ";")
         if self.classic is not None and self.args.brain != "slippi":
             parts.append("the 2017 agents play: "
@@ -347,7 +389,9 @@ class Runner:
         return " ".join(parts)
 
     def close(self):
-        self.brain.stop()
+        for brain in (self.brain, self.falco):
+            if brain is not None:
+                brain.stop()
         if self.classic is not None:
             self.classic.close()
 
@@ -412,17 +456,26 @@ def main():
     ap.add_argument("--epsilon", type=float, default=0.0, help="classic agents' random-action rate")
     ap.add_argument("--seed", type=int)
     ap.add_argument("--once", action="store_true", help="exit when the game closes the connection")
+    ap.add_argument("--exit-with-game", action="store_true",
+                    help="like --once, but keep retrying until the game first connects (play.py uses it "
+                         "with --gomi: Gomihyu then ends her session before the AI is stopped)")
     ap.add_argument("--connect-timeout", type=float, default=120.0)
     ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--gomi", action="store_true", help="Gomihyu (gomi_brain.py, through Ollama) plays Mario")
+    ap.add_argument("--gomi", action="store_true",
+                    help="Gomihyu (gomi_brain.py, through Ollama) plays Mario, Fox and Falco")
+    ap.add_argument("--gomi-falco", type=Path,
+                    help="with --gomi: her Falco is this model (gomi_train.py), and she watches it play")
     args = ap.parse_args()
 
     if args.probe is not None:
         probe(args.probe, args.probe_steps, args.async_inference)
         return
-    if args.model is None:
-        ap.error("--model is required (or --probe)")
+    if args.model is None and not args.gomi:
+        ap.error("--model is required (or --probe, or --gomi)")
+    if args.gomi_falco is not None and not args.gomi:
+        ap.error("--gomi-falco goes with --gomi")
     runner = Runner(args)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # so Gomihyu's session still ends
     try:
         while True:
             try:
@@ -439,7 +492,7 @@ def main():
                 runner.log(f"game connection closed ({e})")
             finally:
                 client.close()
-            if args.once:
+            if args.once or args.exit_with_game:
                 break
             time.sleep(0.5)
     except KeyboardInterrupt:
