@@ -186,10 +186,33 @@ def gomi_dir(environ=os.environ):
     return Path(environ.get("GOMI_DIR") or HERE / "gomi")
 
 
+def duration(minutes):
+    """'45 min', or '6 h 20 min' past an hour."""
+    minutes = max(0, round(minutes))
+    return f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
+
+
+def paused_training(gomi):
+    """gomi_train.py's saved progress when a run can be picked up (paused, or cut off), else None."""
+    import gomi_train
+
+    return gomi_train.read_progress(gomi)
+
+
+def train_button_text(gomi):
+    return "Resume training" if paused_training(gomi) else "Train on my replays"
+
+
 def trained_text(gomi):
     """The launcher's line on her Falco trained on the user's replays (gomi_train.py)."""
     import json
 
+    progress = paused_training(gomi)
+    if progress:
+        step, steps = progress["step"], progress["steps"]
+        left = (steps - step) * progress.get("seconds_per_step", 0) / 60
+        return (f"paused at {step / steps:.0%} (step {step}/{steps}), about {duration(left)} left: "
+                "Resume training picks up there")
     try:
         info = json.loads((Path(gomi) / "falco" / "model.json").read_text())
     except (OSError, ValueError):
@@ -222,12 +245,15 @@ def clock(seconds):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def training_text(progress, last, running_s, quiet_s):
+def training_text(progress, last, running_s, quiet_s, pausing=False):
     """The live line while she trains: how far, how long it has run, and whether it has gone quiet.
     `progress`: train_progress's latest, or None; `last`: the trainer's latest message."""
+    if pausing:
+        where = f" at {progress[0] / progress[1]:.0%}" if progress else ""
+        return f"Pausing{where}: saving where it is, running {clock(running_s)}"
     if progress is not None:
         step, steps, left = progress
-        text = f"Training: {step / steps:.0%} (step {step}/{steps}), about {left} min left"
+        text = f"Training: {step / steps:.0%} (step {step}/{steps}), about {duration(left)} left"
     else:
         text = f"Training: {last}"
     text += f", running {clock(running_s)}"
@@ -546,7 +572,7 @@ class Launcher:
         ttk.Label(trained, text="Her Falco:").pack(side="left")
         self.trained_label = ttk.Label(trained, text=trained_text(gomi_dir()), wraplength=330, justify="left")
         self.trained_label.pack(side="left", padx=6)
-        self.train_button = ttk.Button(trained, text="Train on my replays", command=self.train)
+        self.train_button = ttk.Button(trained, text=train_button_text(gomi_dir()), command=self.train)
         self.train_button.pack(side="right")
         self.train_bar = ttk.Progressbar(ai, mode="indeterminate", maximum=100)   # shown while she trains
         self.gomi_changed()
@@ -678,11 +704,10 @@ class Launcher:
         threading.Thread(target=learn, daemon=True).start()
 
     def train(self):
-        """Train her Falco on the replays' owner (gomi_train.py, in slippi-ai's environment), or stop."""
+        """Train her Falco on the replays' owner (gomi_train.py, in slippi-ai's environment), picking up
+        where a paused run left off; while it runs, pause it."""
         if self.training is not None:
-            self.train_stop.set()            # still setting up: it won't start
-            if self.trainer is not None and self.trainer.poll() is None:
-                self.trainer.terminate()     # the best model so far is already saved
+            self.pause_training()
             return
         folder = self.opts.get("replays")
         if not folder:
@@ -691,7 +716,7 @@ class Launcher:
             return
         if not self.log_shown:
             self.toggle_log()
-        self.train_button.configure(text="Stop training")
+        self.train_button.configure(text="Pause training", state="normal")
         now = time.monotonic()
         self.training = {"start": now, "heard": now, "progress": None, "last": "getting ready"}
         self.train_stop.clear()
@@ -725,8 +750,10 @@ class Launcher:
                                   "be downloaded: see the log."))
                 return
             if self.train_stop.is_set():
-                self.lines_q.put(("trained", "Training stopped before it began."))
+                self.lines_q.put(("paused", "Paused before it began."))
                 return
+            import gomi_train
+            gomi_train.paths(gomi_dir())["pause"].unlink(missing_ok=True)    # an old request: this run is wanted
             lines = []
             proc = self.trainer = subprocess.Popen(
                 train_command(python, folder, gomi_dir()), cwd=str(HERE), stdout=subprocess.PIPE,
@@ -739,6 +766,10 @@ class Launcher:
                 if line.startswith("gomi-train: "):
                     lines.append(line[len("gomi-train: "):])
             proc.wait()
+            paused = [ln for ln in lines if ln.startswith(("paused at", "paused before", "out of time"))]
+            if paused:
+                self.lines_q.put(("paused", paused[-1]))
+                return
             stopped = proc.returncode not in (0, 2)
             done = [ln for ln in lines if "learned from your games" in ln or "already learned" in ln
                     or "no better" in ln or "no Slippi" in ln or "no slippi-ai network" in ln]
@@ -746,6 +777,21 @@ class Launcher:
             self.lines_q.put(("trained", ("Training stopped; the best so far is kept.\n\n" if stopped else "")
                               + text))
         threading.Thread(target=run, daemon=True).start()
+
+    def pause_training(self):
+        """Ask the run to save where it is and stop (gomi_train.py's pause file: the same on Windows);
+        Resume training picks up there. Before the trainer has started, it just won't start."""
+        if self.training is None:
+            return
+        self.train_stop.set()
+        if self.trainer is not None and self.trainer.poll() is None:
+            import gomi_train
+            pause = gomi_train.paths(gomi_dir())["pause"]
+            pause.parent.mkdir(parents=True, exist_ok=True)
+            pause.write_text("")
+        self.training["pausing"] = True
+        self.train_button.configure(text="Pausing...", state="disabled")
+        self.show_training()
 
     def heard_from_training(self, line):
         """One of the trainer's lines: what it says now, and how far it is."""
@@ -771,14 +817,15 @@ class Launcher:
             return
         now = time.monotonic()
         self.trained_label.configure(text=training_text(t["progress"], t["last"], now - t["start"],
-                                                        now - t["heard"]))
+                                                        now - t["heard"], t.get("pausing", False)))
         done = f" {t['progress'][0] / t['progress'][1]:.0%}" if t["progress"] else ""
         self.root.title(f"AI-Melee: training Gomi's Falco{done}")
         if t.get("tick"):
             self.root.after_cancel(t["tick"])
         t["tick"] = self.root.after(1000, self.show_training)
 
-    def training_over(self, text):
+    def training_over(self, text, paused=False):
+        """The run ended: finished (a message says how it went), or paused (the line says where)."""
         if self.training and self.training.get("tick"):
             self.root.after_cancel(self.training["tick"])
         self.training = None
@@ -786,9 +833,10 @@ class Launcher:
         self.train_bar.stop()
         self.train_bar.pack_forget()
         self.root.title("AI-Melee")
-        self.train_button.configure(text="Train on my replays")
+        self.train_button.configure(text=train_button_text(gomi_dir()), state="normal")
         self.trained_label.configure(text=trained_text(gomi_dir()))
-        self.messagebox.showinfo("AI-Melee", "Gomi's Falco: " + text, parent=self.root)
+        if not paused:
+            self.messagebox.showinfo("AI-Melee", "Gomi's Falco: " + text, parent=self.root)
 
     def save(self):
         self.opts.update(brain=self.brain.get(), p2_pick=self.p2_pick.get(), legal_stages=self.legal.get(),
@@ -800,13 +848,12 @@ class Launcher:
     def play(self):
         if not self.opts.get("disc") and not self.choose_disc():
             return
-        if self.trainer is not None and self.trainer.poll() is None:
+        if self.training is not None:
             if not self.messagebox.askyesno("AI-Melee", "Gomi's Falco is still training, and the game would "
-                                            "compete with it for the CPU. Stop training and play? (The best "
-                                            "model so far is kept; train again later to go on.)",
-                                            parent=self.root):
+                                            "compete with it for the CPU. Pause training and play? Resume "
+                                            "training picks up where it left off.", parent=self.root):
                 return
-            self.trainer.terminate()
+            self.pause_training()
         self.save()
         self.lines = []
         self.status = {}
@@ -848,8 +895,8 @@ class Launcher:
                     self.append(line[1])
                     self.heard_from_training(line[1])
                     continue
-                if isinstance(line, tuple) and line[0] == "trained":
-                    self.training_over(line[1])
+                if isinstance(line, tuple) and line[0] in ("trained", "paused"):
+                    self.training_over(line[1], paused=line[0] == "paused")
                     continue
                 if isinstance(line, tuple):              # the replays are read (choose_replays)
                     self.messagebox.showinfo("AI-Melee", "Gomi's Falco, from your replays:\n\n" + line[1],
@@ -904,7 +951,11 @@ class Launcher:
     def close(self):
         self.train_stop.set()
         if self.trainer is not None and self.trainer.poll() is None:
-            self.trainer.terminate()         # the best model so far is kept
+            self.pause_training()            # it saves where it is: the next Resume picks up there
+            try:
+                self.trainer.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                self.trainer.terminate()     # it also saved itself every few minutes
         if self.proc and self.proc.poll() is None:
             self.end_play()
             try:

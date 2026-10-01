@@ -140,6 +140,24 @@ class TrainedTest(unittest.TestCase):
             self.assertEqual(launcher.trained_text(tmp), "plays like Uni (17 games, 79% closer); more training helps")
             (Path(tmp) / "falco" / "model.json").write_text(json.dumps(dict(info, done=True)))
             self.assertEqual(launcher.trained_text(tmp), "plays like Uni (17 games, 79% closer)")
+            self.assertEqual(launcher.train_button_text(tmp), "Train on my replays")
+            # Paused (or cut off): where it is, and the button picks up there.
+            train = Path(tmp) / "falco" / "train"
+            train.mkdir()
+            (train / "latest.pkl").write_bytes(b"x")
+            (train / "progress.json").write_text(json.dumps({"step": 1000, "steps": 4480, "seconds_per_step": 6.5,
+                                                             "paused": True}))
+            self.assertEqual(launcher.trained_text(tmp), "paused at 22% (step 1000/4480), about 6 h 17 min left: "
+                                                         "Resume training picks up there")
+            self.assertEqual(launcher.train_button_text(tmp), "Resume training")
+            (train / "latest.pkl").unlink()
+            self.assertEqual(launcher.train_button_text(tmp), "Train on my replays", "nothing to pick up")
+
+    def test_hours(self):
+        self.assertEqual(launcher.duration(45.4), "45 min")
+        self.assertEqual(launcher.duration(380), "6 h 20 min")
+        self.assertEqual(launcher.training_text((140, 4480, 470), "x", 5, 1),
+                         "Training: 3% (step 140/4480), about 7 h 50 min left, running 0:05")
 
     def test_status_while_it_plays(self):
         self.assertEqual(launcher.status_for("play: her Falco is the network trained on Uni's replays (17 games); "
@@ -156,11 +174,13 @@ class TrainedTest(unittest.TestCase):
                                                  "(best 0.98, before 1.05); about 90 min to go"), (200, 4480, 90))
         self.assertIsNone(launcher.train_progress("gomi-train: checking her on your held-out games..."))
         self.assertEqual(launcher.training_text((140, 4480, 95), "x", 754, 5),
-                         "Training: 3% (step 140/4480), about 95 min left, running 12:34")
+                         "Training: 3% (step 140/4480), about 1 h 35 min left, running 12:34")
+        self.assertEqual(launcher.training_text((140, 4480, 95), "x", 754, 5, pausing=True),
+                         "Pausing at 3%: saving where it is, running 12:34")
         self.assertEqual(launcher.training_text(None, "parsed 50 new replays (13s)", 3725, 1),
                          "Training: parsed 50 new replays (13s), running 1:02:05")
         self.assertEqual(launcher.training_text((140, 4480, 95), "x", 900, 200),
-                         "Training: 3% (step 140/4480), about 95 min left, running 15:00 (no word from it for 3 min)")
+                         "Training: 3% (step 140/4480), about 1 h 35 min left, running 15:00 (no word from it for 3 min)")
 
     def test_tensorflow_chatter_is_left_out(self):
         for line in ("I0000 00:00:1790853862.785505   24807 cudart_stub.cc:31] Could not find cuda drivers on your "
@@ -374,7 +394,15 @@ TRAIN_RUN = textwrap.dedent("""
     messagebox.showinfo = info
     l.root.after(200, l.train)
     if stop:
-        l.root.after(2500, l.train)          # pressed again: Stop training
+        l.root.after(2500, l.train)          # pressed again: Pause training
+        over = l.training_over
+        def paused(text, paused=False):
+            print("PAUSING", l.train_button.cget("text"), str(l.train_button.cget("state")), flush=True)
+            over(text, paused)
+            print("OVER", paused, text, "|", l.train_button.cget("text"), "|", l.trained_label.cget("text"),
+                  flush=True)
+            l.root.after(100, l.root.destroy)
+        l.training_over = paused
     l.root.after(20000, l.root.destroy)
     l.root.mainloop()
 """)
@@ -392,7 +420,16 @@ FAKE_TRAIN = textwrap.dedent("""
     falco.mkdir(parents=True, exist_ok=True)
     (falco / "model").write_bytes(b"x")
     (falco / "model.json").write_text(json.dumps({"name": "Uni", "games": 17, "loss": 5.13, "base_loss": 18.61}))
-    time.sleep(30 if len(sys.argv) > 1 else 1.6)
+    pause = Path(os.environ["GOMI_DIR"]) / "falco" / "train" / "pause"
+    for _ in range(300 if PAUSABLE else 16):          # the real one checks after every step
+        if pause.exists():
+            pause.unlink()
+            (pause.parent / "latest.pkl").write_bytes(b"x")
+            (pause.parent / "progress.json").write_text(json.dumps(
+                {"step": 101, "steps": 300, "seconds_per_step": 3.0, "paused": True}))
+            print("gomi-train: paused at step 101/300 (34%); train again to pick up from here", flush=True)
+            sys.exit(0)
+        time.sleep(0.1)
     print("gomi-train: her Falco learned from your games: 18.61 -> 5.13 error on games she never saw (72% less)",
           flush=True)
 """)
@@ -403,7 +440,7 @@ FAKE_TRAIN = textwrap.dedent("""
 class WindowTest(unittest.TestCase):
     def train(self, stop):
         with tempfile.TemporaryDirectory() as tmp:
-            script = FAKE_TRAIN if not stop else FAKE_TRAIN.replace("len(sys.argv) > 1", "True")
+            script = FAKE_TRAIN.replace("PAUSABLE", "True" if stop else "False")
             (Path(tmp) / "fake_train.py").write_text(script)
             r = subprocess.run(["xvfb-run", "-a", sys.executable, "-c", TRAIN_RUN, str(AGENT), tmp,
                                 "stop" if stop else "run"], capture_output=True, text=True, timeout=60)
@@ -425,10 +462,13 @@ class WindowTest(unittest.TestCase):
         self.assertIn("BUTTON Train on my replays", r.stdout)
         self.assertIn("AFTER 0 AI-Melee", r.stdout, "the bar is gone and the title back")
 
-    def test_stop_training_keeps_the_best(self):
+    def test_pause_then_resume(self):
         r = self.train(stop=True)
-        self.assertIn("INFO Gomi's Falco: Training stopped; the best so far is kept.", r.stdout, r.stderr[-2000:])
-        self.assertIn("LABEL plays like Uni (17 games, 72% closer)", r.stdout)
+        self.assertIn("LABEL Pausing at 33%: saving where it is, running 0:0", r.stdout, r.stderr[-2000:])
+        self.assertIn("PAUSING Pausing... disabled", r.stdout, "pressed once: it's saving")
+        self.assertIn("OVER True paused at step 101/300 (34%); train again to pick up from here | Resume training | "
+                      "paused at 34% (step 101/300), about 10 min left: Resume training picks up there", r.stdout)
+        self.assertNotIn("INFO", r.stdout, "pausing isn't news: no message box")
 
     def test_play_shows_status_then_returns_to_options(self):
         with tempfile.TemporaryDirectory() as tmp:
