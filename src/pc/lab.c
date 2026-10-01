@@ -225,6 +225,28 @@ static PADStatus* pad_head(bool feeding) {
     return head;
 }
 
+/* The dummy's port has no controller. Outside a fight it reads as a
+ * connected neutral pad, as the agent's does (agent_bridge.c inject): the
+ * CSS lets a door be switched to HMN only when its port has a controller.
+ * Except on the results screen, which waits for every plugged-in human to
+ * press Start: there every queued sample reads it unplugged. In a fight it
+ * stands still on a neutral pad while nothing drives it. */
+static void seat_dummy(PADStatus* head, bool fight) {
+    PadLibData* p = &HSD_PadLibData;
+    if (!fight && scene_kind() == GS_RESULTS) {
+        for (int n = 0; n < p->qcount; n++) {
+            PADStatus* st = &p->queue[(p->qread + n) % p->qnum].stat[1];
+            memset(st, 0, sizeof *st);
+            st->err = PAD_ERR_NO_CONTROLLER;
+        }
+        return;
+    }
+    if (head != NULL && head[1].err != PAD_ERR_NONE) {
+        memset(&head[1], 0, sizeof head[1]);
+        head[1].err = PAD_ERR_NONE;
+    }
+}
+
 static void fight_over(void) {
     if (s_slot.frame >= 0 || s_core.rec_len > 0) {
         pc_log_line("lab: fight over; the savestate and the recording are cleared");
@@ -246,6 +268,7 @@ void pc_lab_pre_tick(void) {
     s_fight = fight;
     s_core.routed = false;
     if (!fight) {
+        seat_dummy(pad_head(false), false);
         return;
     }
     PADStatus* head = pad_head(s_core.mode != LAB_IDLE || s_pending != PENDING_NONE);
@@ -274,6 +297,7 @@ void pc_lab_pre_tick(void) {
         pc_log_line("lab: recording full at %d frames (%d s); D-pad Up plays it back",
             s_core.rec_len, LAB_REC_MAX / 60);
     }
+    seat_dummy(head, true);
 }
 
 void pc_lab_post_tick(uint64_t proc_mask) {
