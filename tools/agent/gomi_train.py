@@ -219,8 +219,7 @@ def train(p, rows, owner, base_path, max_minutes=None):
     if start == p["model"] and info.get("games") == len(games) and info.get("done"):
         log(f"her Falco has already learned from all {len(games)} of your Falco games")
         return
-    with open(start, "rb") as f:
-        state = pickle.load(f)
+    state = generic_saving.load_state_from_disk(str(start))    # older models (medium-v2) need its unpickler
     log(f"learning from {len(train_rows)} of your Falco games ({len(test_rows)} held out to check her on), "
         f"starting from {'her last model' if start == p['model'] else Path(start).name}")
 

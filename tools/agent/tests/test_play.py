@@ -43,6 +43,10 @@ def make_phillip(d):
 
 
 class PlayDiscoveryTest(unittest.TestCase):
+    def assertSamePath(self, got, want):
+        """The same file (Windows' temp folder has two spellings: RUNNER~1 and runneradmin)."""
+        self.assertEqual(Path(got).resolve(), Path(want).resolve())
+
     def probe(self, tools, env_disc=None):
         env = {k: v for k, v in os.environ.items() if k != "MELEE_DISC"}
         if env_disc:
@@ -64,9 +68,9 @@ class PlayDiscoveryTest(unittest.TestCase):
             disc.write_bytes(b"\0")
             (bundle / "ai-melee" / "settings.json").write_text(json.dumps({"disc": str(disc)}))
             got = self.probe(bundle / "ai-melee")
-            self.assertEqual(Path(got["melee"]), bundle / "game" / "melee.exe")
-            self.assertEqual(Path(got["phillip"]), bundle / "phillip-master")
-            self.assertEqual(Path(got["disc"]), disc)  # remembered from last time
+            self.assertSamePath(got["melee"], bundle / "game" / "melee.exe")
+            self.assertSamePath(got["phillip"], bundle / "phillip-master")
+            self.assertSamePath(got["disc"], disc)  # remembered from last time
 
     def test_phillip_extracted_with_extract_all(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -77,7 +81,7 @@ class PlayDiscoveryTest(unittest.TestCase):
             disc = Path(tmp) / "Melee.iso"
             disc.write_bytes(b"\0")
             got = self.probe(bundle / "ai-melee", env_disc=str(disc))
-            self.assertEqual(Path(got["phillip"]), bundle / "phillip-master" / "phillip-master")
+            self.assertSamePath(got["phillip"], bundle / "phillip-master" / "phillip-master")
 
     def test_checkout_layout_and_disc_precedence(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -92,9 +96,9 @@ class PlayDiscoveryTest(unittest.TestCase):
             env.write_bytes(b"\0")
             (repo / "tools" / "agent" / "settings.json").write_text(json.dumps({"disc": str(saved)}))
             got = self.probe(repo / "tools" / "agent", env_disc=str(env))
-            self.assertEqual(Path(got["melee"]), repo / "build" / "melee")
-            self.assertEqual(Path(got["phillip"]), Path(tmp) / "phillip")
-            self.assertEqual(Path(got["disc"]), env)  # MELEE_DISC beats the remembered one
+            self.assertSamePath(got["melee"], repo / "build" / "melee")
+            self.assertSamePath(got["phillip"], Path(tmp) / "phillip")
+            self.assertSamePath(got["disc"], env)  # MELEE_DISC beats the remembered one
 
     def test_missing_phillip_says_where_to_get_it(self):
         with tempfile.TemporaryDirectory() as tmp:

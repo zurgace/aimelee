@@ -53,7 +53,8 @@ def expected_state(t):
                 late_inputs=t + 11, dropped_states=t + 13, fighters=fighters)
 
 
-@unittest.skipIf(CC is None, "no C compiler")
+@unittest.skipIf(CC is None or os.name == "nt",
+                 "no C compiler, or Windows (fake_game.c is POSIX; the game's Windows build has agent_link.c)")
 class BridgeProtoTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

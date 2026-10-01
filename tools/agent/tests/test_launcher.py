@@ -163,6 +163,7 @@ class ShortcutTest(unittest.TestCase):
         self.assertIn("Terminal=false\n", entry)
         self.assertIn("StartupWMClass=ai-melee\n", entry)
 
+    @unittest.skipIf(os.name == "nt", "the Linux desktop entries (Windows makes .lnk shortcuts: WindowsTest)")
     def test_install_and_uninstall(self):
         with tempfile.TemporaryDirectory() as home:
             (Path(home) / "Desktop").mkdir()
