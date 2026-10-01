@@ -238,8 +238,10 @@ def train(p, rows, owner, base_path, max_minutes=None):
     config.data.shared_memory = False    # its worker processes need "forkserver", which Windows lacks
 
     policy = saving.load_policy_from_state(state)
+    # slippi-ai's imitation settings, not the base's: medium-v2 carries its RL run's (minibatches of 128).
     learner = learner_lib.Learner(policy=policy, value_function=None,
-                                  **dict(dataclasses.asdict(config.learner), learning_rate=LEARNING_RATE))
+                                  **dict(dataclasses.asdict(learner_lib.LearnerConfig()),
+                                         learning_rate=LEARNING_RATE))
     if not learner.value_vars:                        # no value function: nothing for its optimizer to do
         learner.value_optimizer.apply = lambda grads, params: None
     replays = data_lib.replays_from_meta(d)           # the owner's side of each game
