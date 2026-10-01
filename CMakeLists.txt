@@ -194,6 +194,8 @@ set(PC_SOURCES
         src/pc/gx.c
         src/pc/input_poll.c
         src/pc/keyboard.c
+        src/pc/lab.c
+        src/pc/lab_core.c
         src/pc/main.c
         src/pc/misc.c
         src/pc/os.c
@@ -507,6 +509,12 @@ if (NOT ANDROID AND NOT IOS AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         add_test(NAME agent_link COMMAND agent_link_test)
         set_tests_properties(agent_link PROPERTIES LABELS melee TIMEOUT 30)
         add_dependencies(unit_tests agent_link_test)
+        add_executable(lab_core_test EXCLUDE_FROM_ALL tools/test_lab_core.c src/pc/lab_core.c)
+        target_include_directories(lab_core_test PRIVATE src src/sdk_include)
+        target_compile_options(lab_core_test PRIVATE -UNDEBUG)
+        add_test(NAME lab_core COMMAND lab_core_test)
+        set_tests_properties(lab_core PROPERTIES LABELS melee TIMEOUT 30)
+        add_dependencies(unit_tests lab_core_test)
         add_executable(slp_test EXCLUDE_FROM_ALL tools/test_slp.c src/pc/slp_format.c)
         target_include_directories(slp_test PRIVATE src)
         target_link_libraries(slp_test PRIVATE ${AURORA_SDL3_TARGET})

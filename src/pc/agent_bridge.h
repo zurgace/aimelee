@@ -49,8 +49,9 @@ void pc_agent_slp_end(void);
  * line for the pick, `among` being how many were unlocked to pick from. */
 int pc_agent_css_chars(int door, uint8_t* out, int cap);
 void pc_agent_css_picked(int door, int ckind, int among);
-/* Character select: `door` is the agent's, so any cursor may pick up its
- * token while it is HMN (the agent does not move its cursor in menus). */
+/* Character select: `door` is the agent's (or the Training Lab's dummy, lab.h),
+ * so any cursor may pick up its token while it is HMN (neither moves a
+ * cursor in menus). */
 bool pc_agent_css_door(int door);
 
 #ifdef __cplusplus

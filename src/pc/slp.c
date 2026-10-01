@@ -19,6 +19,7 @@
  * moves while the match runs. */
 #include "compat.h"
 #include "pc/agent_bridge.h"
+#include "pc/lab.h"
 #include "pc/net.h"
 #include "pc/pc.h"
 #include "pc/region.h"
@@ -637,6 +638,7 @@ void pc_slp_tick_end(uint64_t proc_mask) {
     /* The agent bridge's post-tick snapshot shares this hook (agent_bridge.h);
      * it goes after the tick's events so a streaming agent has them first. */
     pc_agent_post_tick(proc_mask);
+    pc_lab_post_tick(proc_mask);
 }
 
 static void stage_tick(uint64_t proc_mask) {

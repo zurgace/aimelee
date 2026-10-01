@@ -321,6 +321,7 @@ bool pc_file_cache_require(const char* filename) {
 }
 /* The agent bridge's pre-tick hook in pc_net_sync's offline path (agent_bridge.c). */
 void pc_agent_pre_tick(void) {}
+void pc_lab_pre_tick(void) {}
 void snaps_free(void) {
     memset(s_snaps, 0, sizeof s_snaps);
     for (int i = 0; i < SNAPS; i++) {

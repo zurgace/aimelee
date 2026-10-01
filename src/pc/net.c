@@ -29,6 +29,7 @@
 #include "compat.h"
 #include "pc/agent_bridge.h"
 #include "pc/file_cache.h"
+#include "pc/lab.h"
 #include "pc/net_internal.h"
 #include "pc/net_sfx.h"
 
@@ -3274,8 +3275,10 @@ void pc_net_sync(void) {
     }
     if (!net.active && !record_active()) {
         /* Offline: the agent bridge (MELEE_AGENT_SOCKET) may put its port's
-         * pad into the queue head this tick is about to consume. */
+         * pad into the queue head this tick is about to consume, and the
+         * Training Lab (MELEE_LAB) route it and load a savestate. */
         pc_agent_pre_tick();
+        pc_lab_pre_tick();
         net.frame++;
         return;
     }
