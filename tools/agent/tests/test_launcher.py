@@ -55,6 +55,12 @@ class OptionsTest(unittest.TestCase):
         opts = launcher.load_options({"launcher": {"box": True}}, environ={})
         self.assertEqual(launcher.play_args(opts)[-2:], ["--box-controller", "on"])
 
+    def test_training_lab_args(self):
+        opts = launcher.load_options({"launcher": {"gomi": True, "box": True}}, environ={})
+        self.assertEqual(launcher.lab_args(opts), ["--lab", "--box-controller", "on"], "no AI options")
+        opts["disc"] = "/x/GALE01.iso"
+        self.assertEqual(launcher.lab_args(opts)[:3], ["--iso", "/x/GALE01.iso", "--lab"])
+
     def test_missing_disc_and_bad_brain(self):
         opts = launcher.load_options({"disc": "/nonexistent.iso", "launcher": {"brain": "x"}}, environ={})
         self.assertIsNone(opts["disc"])
@@ -89,6 +95,20 @@ class StatusTest(unittest.TestCase):
         self.check("agent: Fox: delay0/FoxFD", ("match", "This match: the 2017 agent plays Fox"))
         self.check("agent: Ganondorf: no Phillip agent, Captain Falcon's (FalconFalconBF) stands in",
                    ("match", "This match: the 2017 agent plays Ganondorf"))
+
+    def test_training_lab_lines(self):
+        self.check("play: /x/build/melee in the Training Lab; disc /x/GALE01.iso",
+                   ("game", "Training Lab running. Press Esc or close the game window to stop."), brain="lab")
+        self.check("play: in a fight, D-pad Right saves state, Left loads it, Down records P2 (your controller "
+                   "drives P2; Down again stops), Up plays it back on a loop (keyboard: H, F, G, T)",
+                   ("lab", "Controls (P1's D-pad): D-pad Right saves state, Left loads it, Down records P2 (your "
+                           "controller drives P2; Down again stops), Up plays it back on a loop (keyboard: H, F, G, "
+                           "T)"), brain="lab")
+        self.check("[   42.100] lab: saved state", ("labnow", "Lab: saved state"), brain="lab")
+        self.check("[   50.000] lab: recorded 180 frames (3.0 s); D-pad Up plays them back",
+                   ("labnow", "Lab: recorded 180 frames (3.0 s); D-pad Up plays them back"), brain="lab")
+        self.assertIsNone(launcher.status_for("[    0.5] lab: Training Lab on: you are P1, the dummy is P2; ..."),
+                          "the legend says it already")
 
     def test_gomi_lines(self):
         self.check("gomi: Gomihyu plays Mario vs Fox (gemma4:e4b; 3 lessons, 2 matches played)",
@@ -356,7 +376,11 @@ WINDOW_RUN = textwrap.dedent("""
         l.root.destroy()
     orig_finished = l.finished
     l.finished = done
-    l.root.after(200, l.play)
+    lab = len(sys.argv) > 3 and sys.argv[3] == "lab"
+    def started():
+        print("BUTTONS", l.play_button.winfo_ismapped(), l.lab_button.winfo_ismapped(), flush=True)
+    l.root.after(200, l.play_lab if lab else l.play)
+    l.root.after(600, started)
     l.root.after(20000, l.root.destroy)
     l.root.mainloop()
 """)
@@ -482,6 +506,22 @@ class WindowTest(unittest.TestCase):
             self.assertIn("AI ready: pick your characters and play", r.stdout, r.stderr[-2000:])
             self.assertIn("OPTIONS_BACK 1", r.stdout)
             self.assertIn("model ready", (Path(tmp) / "ai-melee.log").read_text())
+
+    def test_training_lab(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "GALE01.iso").write_bytes(b"")
+            (Path(tmp) / "fake_play.py").write_text(
+                "import sys, time\nassert '--lab' in sys.argv and '--brain' not in sys.argv, sys.argv\n"
+                "print('play: /x/melee in the Training Lab; disc /x/GALE01.iso', flush=True)\n"
+                "time.sleep(1)\n"
+                "print('[   42.100] lab: saved state')\n")
+            r = subprocess.run(["xvfb-run", "-a", sys.executable, "-c", WINDOW_RUN, str(AGENT), tmp, "lab"],
+                               capture_output=True, text=True, timeout=60)
+            self.assertIn("BUTTONS 0 0", r.stdout, r.stderr[-2000:])
+            self.assertIn("Training Lab: you are P1, the dummy is P2", r.stdout)
+            self.assertIn("Training Lab running. Press Esc", r.stdout)
+            self.assertIn("Lab: saved state", r.stdout)
+            self.assertIn("OPTIONS_BACK 1", r.stdout)
 
 
 if __name__ == "__main__":
