@@ -12,6 +12,7 @@ Play Super Smash Bros. Melee on your PC against **Phillip**, the Melee AI. The g
 - [Install on Linux (CachyOS)](#install-on-linux-cachyos)
 - [Install on Windows 10/11](#install-on-windows-1011)
 - [Playing](#playing)
+- [Training Mode (TM-CE)](#training-mode-tm-ce)
 - [Gomihyu takes over P2 (optional)](#gomihyu-takes-over-p2-optional)
 - [Troubleshooting](#troubleshooting)
 - [For the maintainer: publishing the Windows download](#for-the-maintainer-publishing-the-windows-download)
@@ -162,6 +163,16 @@ A gamepad on port 1 works too, and so does an official GameCube adapter. Click t
 The launcher remembers your choices. While you play, it shows **AI ready**, and who plays P2 each match. **Show log** has the details, which are also saved in `tools/agent/ai-melee.log`.
 
 `Play AI-Melee.bat` (Windows) passes options to `play.py` from a console, for example `& '.\Play AI-Melee.bat' --brain classic` in PowerShell.
+
+## Training Mode (TM-CE)
+
+**Training Mode** in the launcher opens [TrainingMode-CommunityEdition](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition) (TM-CE): Melee's 1P Event Match replaced by training events, starting with the Training Lab (savestates, recording and playback, CPU options, frame data) plus ledgedash, L-cancel, edgeguard and more.
+
+TM-CE is a patch to the GameCube disc, so it runs in **Dolphin**, not in AI-Melee's own game, and the AIs don't play in it. AI-Melee includes neither TM-CE nor Dolphin; you get them yourself:
+- **Dolphin:** [Dolphin](https://dolphin-emu.org) or [Slippi Launcher](https://slippi.gg)'s Dolphin. The launcher finds `dolphin-emu`, Dolphin's flatpak, Dolphin in Program Files, or Slippi Launcher's Dolphin; otherwise it asks you to pick the program.
+- **TM-CE:** the first time, the launcher offers TM-CE's download page. Pick the patch you downloaded (`.xdelta`), and AI-Melee applies it to your disc (the same NTSC-U 1.02 disc it plays) and puts `<patch name>.iso` next to the patch. Applying it needs `xdelta3` (Arch/CachyOS: `sudo pacman -S xdelta3`); on Windows, patch your disc as TM-CE's release says and pick the patched `.iso` instead. The disc must be a plain `.iso`: convert a `.rvz` in Dolphin first.
+
+Both are remembered. After that, **Training Mode** starts TM-CE straight away; close Dolphin to come back to the launcher. **Change...** next to "Training Mode (TM-CE)" picks another TM-CE version or Dolphin. From a terminal: `python3 tools/agent/tmce.py` (`--patch`, `--iso`, `--dolphin`; `--help` for more).
 
 ## Gomihyu takes over P2 (optional)
 

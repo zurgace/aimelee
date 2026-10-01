@@ -55,6 +55,13 @@ Choose your disc with "Change...", pick your options and press Play.
 - Press Esc in the game (also in fullscreen), close its window, or press
   "Quit game" in the launcher to stop; the launcher comes back.
 
+Training Mode: the "Training Mode" button opens TrainingMode-CommunityEdition
+(TM-CE, training events such as the Training Lab) in Dolphin. AI-Melee
+includes neither: install Dolphin or Slippi Launcher, download TM-CE from
+https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition/releases
+and patch your disc as its release says, then pick the patched .iso when
+the launcher asks. Close Dolphin to come back.
+
 Options go after the .bat name in a console, for example:
 
     "Play AI-Melee.bat" --quick                  skip the menus
