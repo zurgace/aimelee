@@ -150,6 +150,30 @@ class TrainedTest(unittest.TestCase):
                          ("match", "This match: Falco vs Fox, played like Uni; Gomi watches"))
         self.assertEqual(launcher.status_for("slippi: Gomihyu's Falco ready (warm-up 6.1 s)", "gomi")[0], "ai")
 
+    def test_progress_and_the_live_line(self):
+        self.assertEqual(launcher.train_progress("gomi-train: step 140/4480 (3%), about 95 min to go"), (140, 4480, 95))
+        self.assertEqual(launcher.train_progress("gomi-train: step 200/4480: 0.98 error on your held-out games "
+                                                 "(best 0.98, before 1.05); about 90 min to go"), (200, 4480, 90))
+        self.assertIsNone(launcher.train_progress("gomi-train: checking her on your held-out games..."))
+        self.assertEqual(launcher.training_text((140, 4480, 95), "x", 754, 5),
+                         "Training: 3% (step 140/4480), about 95 min left, running 12:34")
+        self.assertEqual(launcher.training_text(None, "parsed 50 new replays (13s)", 3725, 1),
+                         "Training: parsed 50 new replays (13s), running 1:02:05")
+        self.assertEqual(launcher.training_text((140, 4480, 95), "x", 900, 200),
+                         "Training: 3% (step 140/4480), about 95 min left, running 15:00 (no word from it for 3 min)")
+
+    def test_tensorflow_chatter_is_left_out(self):
+        for line in ("I0000 00:00:1790853862.785505   24807 cudart_stub.cc:31] Could not find cuda drivers on your "
+                     "machine, GPU will not be used.",
+                     "I0000 00:00:1790854716.245037     842 port.cc:153] oneDNN custom operations are on.",
+                     "WARNING: All log messages before absl::InitializeLog() is called are written to STDERR",
+                     "WARNING:tensorflow:From x.py:48: The name tf.losses.x is deprecated.", ""):
+            self.assertTrue(launcher.TF_CHATTER.match(line), line)
+        for line in ("gomi-train: before: 1.05 error on your held-out games", "Traceback (most recent call last):",
+                     "E0000 00:00:1790853862.1 24807 cuda_platform.cc:52] failed call to cuInit",
+                     "ValueError: Batch size 16 is not divisible by minibatch size 128"):
+            self.assertFalse(launcher.TF_CHATTER.match(line), line)
+
     def test_the_command(self):
         cmd = launcher.train_command("/env/python", "/replays", "/gomi")
         self.assertEqual(cmd[:3], ["/env/python", "-u", str(AGENT / "gomi_train.py")])
@@ -336,9 +360,16 @@ TRAIN_RUN = textwrap.dedent("""
     l.opts["replays"] = str(tmp)
     orig = l.trained_label.configure
     l.trained_label.configure = lambda **kw: (print("LABEL", kw.get("text"), flush=True), orig(**kw))
+    heard = l.heard_from_training
+    def watch(line):
+        heard(line)
+        print("BAR", l.train_bar.winfo_ismapped(), str(l.train_bar.cget("mode")), round(float(l.train_bar.cget("value"))),
+              "TITLE", l.root.title(), flush=True)
+    l.heard_from_training = watch
     def info(title, text, parent=None):
         print("INFO", text.replace(chr(10), " "), flush=True)
         print("BUTTON", l.train_button.cget("text"), flush=True)
+        print("AFTER", l.train_bar.winfo_ismapped(), l.root.title(), flush=True)
         l.root.after(100, l.root.destroy)
     messagebox.showinfo = info
     l.root.after(200, l.train)
@@ -352,13 +383,16 @@ FAKE_TRAIN = textwrap.dedent("""
     import json, os, sys, time
     from pathlib import Path
     print("gomi-train: before: 18.61 error on your held-out games", flush=True)
+    time.sleep(0.3)
+    print("gomi-train: step 50/300 (17%), about 6 min to go", flush=True)
+    print("gomi-train: checking her on your held-out games...", flush=True)
     print("gomi-train: step 100/300: 5.13 error on your held-out games (best 5.13, before 18.61); "
           "about 5 min to go", flush=True)
     falco = Path(os.environ["GOMI_DIR"]) / "falco"
     falco.mkdir(parents=True, exist_ok=True)
     (falco / "model").write_bytes(b"x")
     (falco / "model.json").write_text(json.dumps({"name": "Uni", "games": 17, "loss": 5.13, "base_loss": 18.61}))
-    time.sleep(30 if len(sys.argv) > 1 else 0.5)
+    time.sleep(30 if len(sys.argv) > 1 else 1.6)
     print("gomi-train: her Falco learned from your games: 18.61 -> 5.13 error on games she never saw (72% less)",
           flush=True)
 """)
@@ -377,10 +411,19 @@ class WindowTest(unittest.TestCase):
 
     def test_train_button(self):
         r = self.train(stop=False)
-        self.assertIn("LABEL training: step 100/300, error 5.13, about 5 min to go", r.stdout, r.stderr[-2000:])
+        self.assertIn("LABEL Training: before: 18.61 error on your held-out games, running 0:0", r.stdout,
+                      r.stderr[-2000:])
+        self.assertRegex(r.stdout, r"BAR 1 indeterminate \d+ TITLE AI-Melee: training Gomi's Falco\n",
+                         "the bar moves before there's a step count")
+        self.assertIn("LABEL Training: 17% (step 50/300), about 6 min left, running 0:0", r.stdout)
+        self.assertIn("BAR 1 determinate 33 TITLE AI-Melee: training Gomi's Falco 33%", r.stdout)
+        self.assertIn("LABEL Training: 33% (step 100/300), about 5 min left, running 0:0", r.stdout)
+        self.assertIn("LABEL Training: 33% (step 100/300), about 5 min left, running 0:01", r.stdout,
+                      "the clock ticks between the trainer's lines")
         self.assertIn("INFO Gomi's Falco: her Falco learned from your games: 18.61 -> 5.13", r.stdout)
         self.assertIn("LABEL plays like Uni (17 games, 72% closer); more training helps", r.stdout)
         self.assertIn("BUTTON Train on my replays", r.stdout)
+        self.assertIn("AFTER 0 AI-Melee", r.stdout, "the bar is gone and the title back")
 
     def test_stop_training_keeps_the_best(self):
         r = self.train(stop=True)

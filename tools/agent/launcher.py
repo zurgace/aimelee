@@ -29,6 +29,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -198,6 +199,41 @@ def trained_text(gomi):
     if info.get("base_loss") and info.get("loss") is not None:
         text += f", {1 - info['loss'] / info['base_loss']:.0%} closer"
     return text + ")" + ("" if info.get("done") else "; more training helps")
+
+
+TRAIN_QUIET_S = 120      # no line from the trainer for this long: the launcher says so
+
+
+def train_progress(line):
+    """(step, steps, minutes left) from one of gomi_train.py's progress lines, else None."""
+    m = re.match(r"gomi-train: step (\d+)/(\d+)\b.*?about (\d+) min to go", line)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+# TensorFlow's start-up lines, printed before anything can quiet them: information only (its info level,
+# the note before its logger starts, and its deprecation notes), never an error.
+TF_CHATTER = re.compile(r"^(I\d{4} \d+:\d+:\d+\.\d+ +\d+ \S+\] |WARNING: All log messages before absl::InitializeLog"
+                        r"|WARNING:tensorflow:From |$)")
+
+
+def clock(seconds):
+    seconds = int(seconds)
+    h, m, s = seconds // 3600, seconds // 60 % 60, seconds % 60
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def training_text(progress, last, running_s, quiet_s):
+    """The live line while she trains: how far, how long it has run, and whether it has gone quiet.
+    `progress`: train_progress's latest, or None; `last`: the trainer's latest message."""
+    if progress is not None:
+        step, steps, left = progress
+        text = f"Training: {step / steps:.0%} (step {step}/{steps}), about {left} min left"
+    else:
+        text = f"Training: {last}"
+    text += f", running {clock(running_s)}"
+    if quiet_s > TRAIN_QUIET_S:
+        text += f" (no word from it for {int(quiet_s // 60)} min)"
+    return text
 
 
 def train_command(python, replays, gomi):
@@ -444,6 +480,8 @@ class Launcher:
         self.opts = load_options(self.settings)
         self.proc = None
         self.trainer = None      # gomi_train.py, while it runs
+        self.training = None     # while a training run is on: its start, last word, progress and message
+        self.train_stop = threading.Event()
         self.logfile = None      # ai-melee.log, while play.py runs
         self.stopping = False
         self.lines = []
@@ -503,13 +541,14 @@ class Launcher:
         self.replays_label.pack(side="left", padx=6)
         ttk.Button(replays, text="Teach Gomi from replays...", command=self.choose_replays).pack(side="right")
         self.show_replays()
-        trained = ttk.Frame(ai)
+        trained = self.trained_row = ttk.Frame(ai)
         trained.pack(fill="x", pady=(4, 0))
         ttk.Label(trained, text="Her Falco:").pack(side="left")
         self.trained_label = ttk.Label(trained, text=trained_text(gomi_dir()), wraplength=330, justify="left")
         self.trained_label.pack(side="left", padx=6)
         self.train_button = ttk.Button(trained, text="Train on my replays", command=self.train)
         self.train_button.pack(side="right")
+        self.train_bar = ttk.Progressbar(ai, mode="indeterminate", maximum=100)   # shown while she trains
         self.gomi_changed()
         game = ttk.LabelFrame(self.options, text="Game", padding=8)
         game.pack(fill="x", pady=(8, 0))
@@ -640,8 +679,9 @@ class Launcher:
 
     def train(self):
         """Train her Falco on the replays' owner (gomi_train.py, in slippi-ai's environment), or stop."""
-        if self.trainer is not None:
-            if self.trainer.poll() is None:
+        if self.training is not None:
+            self.train_stop.set()            # still setting up: it won't start
+            if self.trainer is not None and self.trainer.poll() is None:
                 self.trainer.terminate()     # the best model so far is already saved
             return
         folder = self.opts.get("replays")
@@ -652,10 +692,17 @@ class Launcher:
         if not self.log_shown:
             self.toggle_log()
         self.train_button.configure(text="Stop training")
-        self.trained_label.configure(text="getting ready...")
+        now = time.monotonic()
+        self.training = {"start": now, "heard": now, "progress": None, "last": "getting ready"}
+        self.train_stop.clear()
+        self.train_bar.configure(mode="indeterminate")
+        self.train_bar.pack(fill="x", pady=(4, 0), after=self.trained_row)
+        self.train_bar.start(15)
+        self.show_training()
 
         def say(line):
-            self.lines_q.put(("train", line))
+            if not TF_CHATTER.match(line):
+                self.lines_q.put(("train", line))
 
         def run():
             import contextlib
@@ -677,6 +724,9 @@ class Launcher:
                 self.lines_q.put(("trained", "Training starts from one of slippi-ai's networks, and none could "
                                   "be downloaded: see the log."))
                 return
+            if self.train_stop.is_set():
+                self.lines_q.put(("trained", "Training stopped before it began."))
+                return
             lines = []
             proc = self.trainer = subprocess.Popen(
                 train_command(python, folder, gomi_dir()), cwd=str(HERE), stdout=subprocess.PIPE,
@@ -697,8 +747,45 @@ class Launcher:
                               + text))
         threading.Thread(target=run, daemon=True).start()
 
+    def heard_from_training(self, line):
+        """One of the trainer's lines: what it says now, and how far it is."""
+        t = self.training
+        if t is None:
+            return
+        t["heard"] = time.monotonic()
+        progress = train_progress(line)
+        if progress is not None:
+            t["progress"] = progress
+            if str(self.train_bar.cget("mode")) != "determinate":
+                self.train_bar.stop()
+                self.train_bar.configure(mode="determinate")
+            self.train_bar.configure(value=100 * progress[0] / progress[1])
+        elif line.startswith("gomi-train: "):
+            t["last"] = line[len("gomi-train: "):].rstrip(".")[:80]
+        self.show_training()
+
+    def show_training(self):
+        """The live line and the window title; again every second while she trains."""
+        t = self.training
+        if t is None:
+            return
+        now = time.monotonic()
+        self.trained_label.configure(text=training_text(t["progress"], t["last"], now - t["start"],
+                                                        now - t["heard"]))
+        done = f" {t['progress'][0] / t['progress'][1]:.0%}" if t["progress"] else ""
+        self.root.title(f"AI-Melee: training Gomi's Falco{done}")
+        if t.get("tick"):
+            self.root.after_cancel(t["tick"])
+        t["tick"] = self.root.after(1000, self.show_training)
+
     def training_over(self, text):
+        if self.training and self.training.get("tick"):
+            self.root.after_cancel(self.training["tick"])
+        self.training = None
         self.trainer = None
+        self.train_bar.stop()
+        self.train_bar.pack_forget()
+        self.root.title("AI-Melee")
         self.train_button.configure(text="Train on my replays")
         self.trained_label.configure(text=trained_text(gomi_dir()))
         self.messagebox.showinfo("AI-Melee", "Gomi's Falco: " + text, parent=self.root)
@@ -759,12 +846,7 @@ class Launcher:
                     continue
                 if isinstance(line, tuple) and line[0] == "train":    # gomi_train.py's progress
                     self.append(line[1])
-                    m = re.match(r"gomi-train: (step \d+/\d+): ([\d.]+) error.*?about (\d+) min", line[1])
-                    if m:
-                        self.trained_label.configure(text=f"training: {m.group(1)}, error {m.group(2)}, "
-                                                          f"about {m.group(3)} min to go")
-                    elif line[1].startswith("gomi-train: "):
-                        self.trained_label.configure(text="training: " + line[1][len("gomi-train: "):][:80])
+                    self.heard_from_training(line[1])
                     continue
                 if isinstance(line, tuple) and line[0] == "trained":
                     self.training_over(line[1])
@@ -820,6 +902,7 @@ class Launcher:
             self.end_play()
 
     def close(self):
+        self.train_stop.set()
         if self.trainer is not None and self.trainer.poll() is None:
             self.trainer.terminate()         # the best model so far is kept
         if self.proc and self.proc.poll() is None:
