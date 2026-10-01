@@ -1,0 +1,65 @@
+name: AI-Melee agent on Windows
+
+# The Python side of AI-Melee on a real Windows machine, set up the way a player's is (README-AI-Melee.txt):
+# python.org's Python 3.12 and `pip install numpy uv`, and no Git (Windows doesn't come with it). Then
+# what play.py does on a first run: slippi-ai's environment (play.ensure_slippi_env, with Git hidden),
+# medium-v2 (play.ensure_slippi_model) and its timing probe (play.probe_slippi); slippi_agent's live-loop
+# tests against a fake game over loopback TCP, as on Windows; a few steps of Gomi's Falco training
+# from medium-v2 (gomi_train.py); and the rest of the agent's tests. Linux runs these in its own setup;
+# this is the check that Windows does the same.
+on:
+  push:
+    paths:
+      - 'tools/agent/**'
+      - '.github/workflows/ai-melee-windows-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent:
+    name: Windows agent (slippi-ai, Gomi, launcher)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: tools/agent
+    env:
+      PYTHONIOENCODING: utf-8
+      TF_CPP_MIN_LOG_LEVEL: '3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: A player's tools (README-AI-Melee.txt step 2)
+        run: python -m pip install numpy uv
+
+      - name: slippi-ai's environment, as play.py sets it up, without Git
+        run: |
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch '\\Git\\' }) -join ';'
+          if (Get-Command git -ErrorAction SilentlyContinue) { throw "git is still on PATH" }
+          python -c "import play, sys; p = play.ensure_slippi_env(); print('slippi-env python:', p); sys.exit(0 if p else 1)"
+
+      - name: medium-v2 and its timing probe, as play.py does
+        run: |
+          python -c "import play, sys; m = play.ensure_slippi_model(None); ck = play.probe_slippi(play.slippi_python(), m) if m else None; print('model:', m, 'ckinds:', ck); sys.exit(0 if ck else 1)"
+
+      - name: slippi-ai plays (slippi_agent loop tests), and Gomi's Falco trains from medium-v2
+        run: |
+          $model = (Resolve-Path weights\slippi\medium-v2).Path
+          $env:SLIPPI_TEST_MODEL = $model
+          $env:SLIPPI_BASE_MODEL = $model
+          slippi-env\Scripts\python.exe -m unittest tests.test_slippi_agent tests.test_gomi_train -v
+
+      - name: The rest of the agent's tests
+        if: always()
+        run: python -m unittest discover -s tests -v

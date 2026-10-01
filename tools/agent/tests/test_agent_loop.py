@@ -12,7 +12,6 @@ per match.
 import json
 import os
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
@@ -68,6 +67,21 @@ def fighter_bytes(port, t, present=True, ckind=0):
     return bridge.FIGHTER.pack(*vals, *([0] * 11))  # the consumed-pad fields: unused here
 
 
+
+def listen(path):
+    """The fake game's listening socket and the address the agent connects to: a Unix socket, or
+    loopback TCP where Python has none (Windows), as the game itself does."""
+    if hasattr(socket, "AF_UNIX"):
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(path)
+        address = path
+    else:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        address = f"tcp:127.0.0.1:{srv.getsockname()[1]}"
+    srv.listen(1)
+    return srv, address
+
 class FakeGame(threading.Thread):
     """Plays a script of ticks: (in_fight, match_start, scene_frame, fighters_ran[, P2 ckind])."""
 
@@ -78,9 +92,7 @@ class FakeGame(threading.Thread):
         self.replies = {}  # tick -> (target, flags, Pad)
         self.states = []
         self.released = True  # like the bridge: nothing to wait for until the agent drives
-        self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.srv.bind(path)
-        self.srv.listen(1)
+        self.srv, self.address = listen(path)
 
     def send(self, conn, msg_type, payload):
         conn.sendall(bridge.HEADER.pack(bridge.MAGIC, msg_type, len(payload)) + payload)
@@ -146,7 +158,7 @@ class AgentLoopTest(unittest.TestCase):
             game = FakeGame(sock, script)
             game.start()
             proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--weights", str(npz),
-                                   "--socket", sock, "--seed", "3", "--once", "--quiet",
+                                   "--socket", game.address, "--seed", "3", "--once", "--quiet",
                                    "--stats-json", str(Path(tmp) / "stats.json")],
                                   capture_output=True, text=True, timeout=60)
             game.join(10)
@@ -229,7 +241,7 @@ class AgentLoopTest(unittest.TestCase):
             game = FakeGame(sock, script)
             game.start()
             proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--roster", str(roster_file),
-                                   "--socket", sock, "--seed", "3", "--once"],
+                                   "--socket", game.address, "--seed", "3", "--once"],
                                   capture_output=True, text=True, timeout=60)
             game.join(10)
             self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -301,7 +313,7 @@ class AgentLoopTest(unittest.TestCase):
                            GOMI_OUTBOX=str(Path(tmp) / "outbox"),
                            GOMI_PLAN_EVERY="0.05")
                 proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--roster", str(roster_file),
-                                       "--socket", sock, "--seed", "3", "--once", "--gomi"],
+                                       "--socket", game.address, "--seed", "3", "--once", "--gomi"],
                                       capture_output=True, text=True, timeout=60, env=env)
                 game.join(10)
                 lessons = (Path(tmp) / "gomi" / "mario" / "lessons.md").read_text()
@@ -333,7 +345,7 @@ class AgentLoopTest(unittest.TestCase):
                 env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
                            GOMI_OUTBOX=str(Path(tmp) / "outbox"),
                            GOMI_PLAN_EVERY="0.05")
-                proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--gomi", "--socket", sock,
+                proc = subprocess.run([sys.executable, str(AGENT / "agent.py"), "--gomi", "--socket", game.address,
                                        "--seed", "3", "--exit-with-game"], capture_output=True, text=True,
                                       timeout=60, env=env)
                 game.join(10)

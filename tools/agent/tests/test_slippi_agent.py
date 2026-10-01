@@ -11,6 +11,7 @@ Destination written by melee-pc's own serializer (gen_slp_stream.c).
 
 import os
 import select
+import shutil
 import socket
 import struct
 import subprocess
@@ -100,6 +101,21 @@ class ParseTest(unittest.TestCase):
         self.assertEqual((c.pad().button, c.pad().stick_x, c.pad().analog_a), (bridge.BUTTON_UP, 23, 0))
 
 
+
+def listen(path):
+    """The fake game's listening socket and the address the agent connects to: a Unix socket, or
+    loopback TCP where Python has none (Windows), as the game itself does."""
+    if hasattr(socket, "AF_UNIX"):
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(path)
+        address = path
+    else:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        address = f"tcp:127.0.0.1:{srv.getsockname()[1]}"
+    srv.listen(1)
+    return srv, address
+
 class FakeGame(threading.Thread):
     """Streams the fixture like the game: each frame's events, then that tick's STATE."""
 
@@ -109,9 +125,7 @@ class FakeGame(threading.Thread):
         self.replies = {}
         self.latency = {}  # tick -> seconds from its STATE to the reply
         self.released = True
-        self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.srv.bind(path)
-        self.srv.listen(1)
+        self.srv, self.address = listen(path)
 
     @staticmethod
     def msg(msg_type, payload):
@@ -177,7 +191,7 @@ class LoopTest(unittest.TestCase):
             game = FakeGame(sock)
             game.start()
             proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"),
-                                   "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", sock,
+                                   "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", game.address,
                                    "--once", "--async-inference"],
                                   capture_output=True, text=True, timeout=300)
             game.join(30)
@@ -206,7 +220,7 @@ class LoopTest(unittest.TestCase):
             game = FakeGame(sock, p2_ckind=8)  # the stream says Falco; the STATE says Mario
             game.start()
             proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"),
-                                   "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", sock,
+                                   "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", game.address,
                                    "--roster", str(roster_file), "--brain", "classic", "--once"],
                                   capture_output=True, text=True, timeout=300)
             game.join(30)
@@ -234,7 +248,7 @@ class LoopTest(unittest.TestCase):
                 env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
                            GOMI_OUTBOX=str(Path(tmp) / "outbox"))
                 proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"),
-                                       "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", sock,
+                                       "--model", os.environ["SLIPPI_TEST_MODEL"], "--socket", game.address,
                                        "--roster", str(roster_file), "--gomi", "--once"],
                                       capture_output=True, text=True, timeout=300, env=env)
                 game.join(30)
@@ -258,7 +272,10 @@ class LoopTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 falco = Path(tmp) / "gomi" / "falco"
                 falco.mkdir(parents=True)
-                os.symlink(os.path.abspath(os.environ["SLIPPI_TEST_MODEL"]), falco / "model")
+                try:
+                    os.symlink(os.path.abspath(os.environ["SLIPPI_TEST_MODEL"]), falco / "model")
+                except OSError:                       # Windows without symlink rights
+                    shutil.copy(os.environ["SLIPPI_TEST_MODEL"], falco / "model")
                 (falco / "model.json").write_text(json.dumps({"player": "ILYJ#309", "name": "Uni", "games": 17}))
                 sock = str(Path(tmp) / "agent.sock")
                 game = FakeGame(sock, p2_ckind=0x14)
@@ -266,7 +283,7 @@ class LoopTest(unittest.TestCase):
                 env = dict(os.environ, GOMI_OLLAMA_URL=fake.url, GOMI_DIR=str(Path(tmp) / "gomi"),
                            GOMI_OUTBOX=str(Path(tmp) / "outbox"))
                 proc = subprocess.run([sys.executable, str(AGENT / "slippi_agent.py"), "--gomi",
-                                       "--gomi-falco", str(falco / "model"), "--socket", sock,
+                                       "--gomi-falco", str(falco / "model"), "--socket", game.address,
                                        "--exit-with-game", "--async-inference"],
                                       capture_output=True, text=True, timeout=300, env=env)
                 game.join(30)

@@ -162,6 +162,18 @@ class SuperviseTest(unittest.TestCase):
         self.assertLess(took, 5, "stopped after the wrap-up time")
 
 
+class SlippiRequirementsTest(unittest.TestCase):
+    def test_nothing_that_needs_git(self):
+        """A git+ requirement needs Git installed, which Windows doesn't come with: uv fails ("Git
+        executable not found") and the newer Phillip is never set up there. GitHub's zip of the
+        commit installs the same files without it."""
+        lines = [ln.strip() for ln in (AGENT / "slippi-requirements.txt").read_text().splitlines()]
+        reqs = [ln for ln in lines if ln and not ln.startswith("#")]
+        self.assertFalse([ln for ln in reqs if "git+" in ln])
+        slippi = next(ln for ln in reqs if ln.startswith("slippi-ai"))
+        self.assertRegex(slippi, r"^slippi-ai @ https://github\.com/vladfi1/slippi-ai/archive/[0-9a-f]{40}\.zip$")
+
+
 class CssCharsTest(unittest.TestCase):
     """MELEE_AGENT_CSS_CHARS: the characters the AI's door opens with."""
 

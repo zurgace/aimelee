@@ -1,7 +1,9 @@
 # The newer Phillip (vladfi1/slippi-ai) and exactly the packages it was tested with in AI-Melee
 # (Linux x86-64, Python 3.12, CPU). play.py installs this into tools/agent/slippi-env with uv.
-# Regenerate: uv pip freeze --exclude-editable in a working environment.
-slippi-ai @ git+https://github.com/vladfi1/slippi-ai@275c07270b5aa5f7b22aabff79dfe7f7b10a385f
+# Regenerate: uv pip freeze --exclude-editable in a working environment, then put slippi-ai back as
+# GitHub's zip of its commit: a git+https line needs Git installed, which Windows doesn't come with
+# (uv: "Git executable not found"), and then the newer Phillip silently isn't set up there.
+slippi-ai @ https://github.com/vladfi1/slippi-ai/archive/275c07270b5aa5f7b22aabff79dfe7f7b10a385f.zip
 absl-py==2.5.0
 annotated-types==0.8.0
 astunparse==1.6.3
