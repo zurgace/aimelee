@@ -30,7 +30,9 @@ reviews and posts (gomi_brain's watching mode).
 """
 
 import argparse
+import contextlib
 import dataclasses
+import io
 import hashlib
 import json
 import math
@@ -42,6 +44,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+# slippi-ai's and TensorFlow's chatter (progress bars, start-up info) would bury this script's own lines.
+for _var, _value in (("TQDM_DISABLE", "1"), ("TF_CPP_MIN_LOG_LEVEL", "3"), ("ABSL_MIN_LOG_LEVEL", "3")):
+    os.environ.setdefault(_var, _value)
 
 FALCO = 22              # slippi-ai's parsed rows use the internal character ids (melee.Character.FALCO)
 FALCO_NAME = "falco"    # the same, as slippi-ai's dataset filters name it
@@ -51,6 +56,7 @@ MIN_STEPS = 200
 BATCH, UNROLL = 16, 64  # sequences of 64 frames, 16 at a time: ~1.3 s a step on 4 cores
 LEARNING_RATE = 3e-5
 EVAL_EVERY = 100        # steps
+PROGRESS_EVERY_S = 20   # a progress line at least this often while training: it's visibly still going
 EVAL_BATCHES = 20
 PATIENCE = 3            # evaluations without a new best before it stops
 HELD_OUT = 5            # one game in HELD_OUT is held out
@@ -244,7 +250,8 @@ def train(p, rows, owner, base_path, max_minutes=None):
                                          learning_rate=LEARNING_RATE))
     if not learner.value_vars:                        # no value function: nothing for its optimizer to do
         learner.value_optimizer.apply = lambda grads, params: None
-    replays = data_lib.replays_from_meta(d)           # the owner's side of each game
+    with contextlib.redirect_stdout(io.StringIO()):     # its "Banned names" list: the opponents' sides it left out
+        replays = data_lib.replays_from_meta(d)        # the owner's side of each game
     test_md5 = {r["slp_md5"] for r in test_rows}
     train_md5 = {r["slp_md5"] for r in train_rows}
     kw = dict(name_map=state.get("name_map") or {"": 0}, extra_frames=policy.delay + 1,
@@ -282,12 +289,19 @@ def train(p, rows, owner, base_path, max_minutes=None):
     deadline = time.monotonic() + max_minutes * 60 if max_minutes else None
     manager = train_lib.TrainManager(learner, train_src, dict(train=True))
     stale, t0, done = 0, time.monotonic(), False
+    said = t0
     try:
         for i in range(1, steps + 1):
             manager.step(compiled=False if i == 1 else None)     # the first creates Adam's slots
             if i % EVAL_EVERY and i != steps:
+                if time.monotonic() - said >= PROGRESS_EVERY_S:
+                    said = time.monotonic()
+                    left = (steps - i) * (said - t0) / i
+                    log(f"step {i}/{steps} ({i / steps:.0%}), about {left / 60:.0f} min to go")
                 continue
+            log("checking her on your held-out games...")
             loss = evaluate()
+            said = time.monotonic()
             if loss < best:
                 best, stale = loss, 0
                 save(p["model"], loss)

@@ -2,7 +2,9 @@
 network. The training itself needs slippi-ai's environment (checked end to end on real replays; see
 the commit that added it)."""
 
+import contextlib
 import importlib.util
+import io
 import os
 import shutil
 import sys
@@ -121,14 +123,22 @@ class TrainTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp, True)
         with zipfile.ZipFile(slippi_paths.TOY_DATASET / "Raw" / "single_game.zip") as z:
             z.extractall(tmp / "replays")
-        small = dict(FALCO=7, FALCO_NAME="sheik", MIN_STEPS=6, EPOCHS=0, EVAL_EVERY=3, EVAL_BATCHES=2)
+        small = dict(FALCO=7, FALCO_NAME="sheik", MIN_STEPS=6, EPOCHS=0, EVAL_EVERY=3, EVAL_BATCHES=2,
+                     PROGRESS_EVERY_S=0)
         with mock.patch.multiple(gt, **small):
             p = gt.paths(tmp / "gomi")
             rows = gt.parse_new(tmp / "replays", p)
             self.assertEqual(len(rows), 1)
             owner = gt.owner_of(rows)
             self.assertEqual(owner, "Diamond Player")
-            gt.train(p, rows, owner, os.environ["SLIPPI_BASE_MODEL"])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                gt.train(p, rows, owner, os.environ["SLIPPI_BASE_MODEL"])
+        said = out.getvalue()
+        sys.stdout.write(said)
+        self.assertIn("gomi-train: step 1/6 (17%), about ", said, "a line between the checks: still going")
+        self.assertIn("gomi-train: checking her on your held-out games...", said)
+        self.assertNotIn("Banned names", said, "slippi-ai's list of the sides it left out stays out")
         self.assertTrue(p["model"].is_file(), "a step closer to the game it trains on: saved")
         import json
         info = json.loads(p["info"].read_text())
