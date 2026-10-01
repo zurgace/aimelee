@@ -380,9 +380,18 @@ def windows_shortcut_exists():
     return desktop.exists() or (appdata / "AI-Melee.lnk").exists()
 
 
-def stop_command(pid):
-    """Windows can't ask play.py to stop (no SIGTERM): end it, the game and the AI together."""
-    return ["taskkill", "/PID", str(pid), "/T", "/F"]
+def stop_command(pid, force=True):
+    """Windows can't ask play.py to stop (no SIGTERM). Without `force`, taskkill asks every window in its
+    tree to close, as clicking the game window's X does: the game closes, and play.py and the AI end
+    after it the way they do then (Gomihyu ends her session, her Discord post). With it, they all end
+    at once."""
+    return ["taskkill", "/PID", str(pid), "/T"] + (["/F"] if force else [])
+
+
+def quit_grace_s(gomi):
+    """How long Quit waits for the game's own close before ending everything: with Gomihyu, play.py's
+    own wait for her last thoughts (then it ends by itself), plus a margin."""
+    return play.GOMI_WRAP_UP_S + play.GAME_CLOSING_S + 15 if gomi else 15
 
 
 # ---------------------------------------------------------------- the window
@@ -791,12 +800,20 @@ class Launcher:
                                       f"The full log is below and in {LOG}.", parent=self.root)
 
     def end_play(self):
-        """play.py closes the game and the AI on SIGTERM; on Windows they end together."""
+        """play.py closes the game and the AI on SIGTERM. Windows has none: the game's window is asked to
+        close (as its X does), and only if they're still running a while later is everything ended."""
         self.stopping = True
         if WINDOWS:
-            subprocess.run(stop_command(self.proc.pid), capture_output=True, creationflags=CREATE_NO_WINDOW)
+            subprocess.run(stop_command(self.proc.pid, force=False), capture_output=True,
+                           creationflags=CREATE_NO_WINDOW)
+            proc = self.proc
+            self.root.after(int(quit_grace_s(self.opts.get("gomi")) * 1000), lambda: self.force_end(proc))
         else:
             self.proc.terminate()
+
+    def force_end(self, proc):
+        if proc.poll() is None:
+            subprocess.run(stop_command(proc.pid), capture_output=True, creationflags=CREATE_NO_WINDOW)
 
     def stop(self):
         if self.proc and self.proc.poll() is None:
@@ -810,7 +827,10 @@ class Launcher:
             try:
                 self.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                if WINDOWS:
+                    self.force_end(self.proc)        # the game and the AI too, not only play.py
+                else:
+                    self.proc.kill()
         self.root.destroy()
 
     # ---- display ----------------------------------------------------------

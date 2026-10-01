@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -205,6 +206,44 @@ class WindowsTest(unittest.TestCase):
             self.assertEqual(launcher.console_python(py), py)
         self.assertEqual(launcher.windowless_python("/usr/bin/python3"), Path("/usr/bin/python3"))
         self.assertEqual(launcher.stop_command(42), ["taskkill", "/PID", "42", "/T", "/F"])
+        # Quit first asks the windows to close, as the game's X does, so Gomihyu's session still ends.
+        self.assertEqual(launcher.stop_command(42, force=False), ["taskkill", "/PID", "42", "/T"])
+        self.assertGreater(launcher.quit_grace_s(gomi=True), launcher.play.GOMI_WRAP_UP_S)
+        self.assertEqual(launcher.quit_grace_s(gomi=False), 15)
+
+    @unittest.skipUnless(os.name == "nt" and importlib.util.find_spec("tkinter"), "Windows, with Tk")
+    def test_quit_closes_the_game_like_its_x(self):
+        """On a real Windows machine: Quit's first taskkill (no /F) closes the game's window the way its X
+        does, the game exits by itself, and play.py, waiting on it, finishes on its own; nothing is
+        force-killed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp) / "game.py"
+            game.write_text(textwrap.dedent(f"""
+                import tkinter as tk
+                root = tk.Tk()
+                def closed():
+                    open(r"{tmp}\\game-closed", "w").close()
+                    root.destroy()
+                root.protocol("WM_DELETE_WINDOW", closed)
+                root.after(100, lambda: open(r"{tmp}\\game-up", "w").close())
+                root.mainloop()
+            """))
+            play_py = Path(tmp) / "play.py"
+            play_py.write_text(textwrap.dedent(f"""
+                import subprocess, sys
+                game = subprocess.Popen([sys.executable, r"{game}"])
+                game.wait()
+                open(r"{tmp}\\play-done", "w").write(str(game.returncode))
+            """))
+            proc = subprocess.Popen([sys.executable, str(play_py)], creationflags=launcher.CREATE_NO_WINDOW)
+            for _ in range(200):
+                if (Path(tmp) / "game-up").exists():
+                    break
+                time.sleep(0.1)
+            subprocess.run(launcher.stop_command(proc.pid, force=False), capture_output=True)
+            proc.wait(timeout=30)
+            self.assertTrue((Path(tmp) / "game-closed").exists(), "the window was asked to close")
+            self.assertEqual((Path(tmp) / "play-done").read_text(), "0", "play.py finished by itself")
 
     def test_shortcut_prefers_the_exe(self):
         with tempfile.TemporaryDirectory() as tmp:
