@@ -6,6 +6,8 @@ names it phillip-master). A checkout has build/melee and ../phillip. Runs
 play.py's helpers from a copy of the tools placed in each layout.
 """
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -164,6 +166,48 @@ class SuperviseTest(unittest.TestCase):
     def test_but_not_forever(self):
         code, took = self.supervise(self.proc(0.3), self.agents((60, 0)), gomi=True, wrap_up=0.5)
         self.assertLess(took, 5, "stopped after the wrap-up time")
+
+
+class LabTest(unittest.TestCase):
+    """--lab: the game alone with MELEE_LAB on, no agent and no agent bridge."""
+
+    def setUp(self):
+        sys.path.insert(0, str(AGENT))
+        import play
+        self.play = play
+
+    def test_environment(self):
+        env = self.play.lab_env({"box_controller": True},
+                                {"MELEE_AGENT_SOCKET": "/tmp/x.sock", "MELEE_AGENT_CSS_CHARS": "1,2", "HOME": "h"})
+        self.assertEqual(env["MELEE_LAB"], "1")
+        self.assertNotIn("MELEE_AGENT_SOCKET", env, "no bridge: nothing else drives P2")
+        self.assertNotIn("MELEE_AGENT_CSS_CHARS", env)
+        self.assertEqual((env["MELEE_ESC_QUITS"], env["MELEE_PREWARM"], env["MELEE_BOX_CONTROLLER"]), ("1", "0", "1"))
+        self.assertEqual(env["HOME"], "h")
+        self.assertNotIn("MELEE_BOX_CONTROLLER", self.play.lab_env({}, {}))
+
+    def test_runs_the_game_until_it_closes(self):
+        seen = {}
+        real = subprocess.Popen
+
+        def popen(cmd, cwd=None, env=None):
+            seen.update(cmd=cmd, env=env)
+            return real([sys.executable, "-c", "import sys; sys.exit(3)"])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(self.play.subprocess, "Popen", popen):
+            melee, disc = Path(tmp) / "melee", Path(tmp) / "GALE01.iso"
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = self.play.run_lab(melee, disc, {})
+        self.assertEqual(code, 3)
+        self.assertEqual(seen["cmd"], [str(melee), str(disc)])
+        self.assertEqual(seen["env"]["MELEE_LAB"], "1")
+        self.assertIn("Down records P2", out.getvalue())
+
+    def test_not_with_an_ai(self):
+        r = subprocess.run([sys.executable, str(AGENT / "play.py"), "--lab", "--gomi"], capture_output=True,
+                           text=True, timeout=30)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--lab is you and a recorded dummy", r.stdout + r.stderr)
 
 
 class SlippiRequirementsTest(unittest.TestCase):
