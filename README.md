@@ -12,6 +12,7 @@ Play Super Smash Bros. Melee on your PC against **Phillip**, the Melee AI. The g
 - [Install on Linux (CachyOS)](#install-on-linux-cachyos)
 - [Install on Windows 10/11](#install-on-windows-1011)
 - [Playing](#playing)
+- [Training Lab](#training-lab)
 - [Gomihyu takes over P2 (optional)](#gomihyu-takes-over-p2-optional)
 - [Troubleshooting](#troubleshooting)
 - [For the maintainer: publishing the Windows download](#for-the-maintainer-publishing-the-windows-download)
@@ -162,6 +163,23 @@ A gamepad on port 1 works too, and so does an official GameCube adapter. Click t
 The launcher remembers your choices. While you play, it shows **AI ready**, and who plays P2 each match. **Show log** has the details, which are also saved in `tools/agent/ai-melee.log`.
 
 `Play AI-Melee.bat` (Windows) passes options to `play.py` from a console, for example `& '.\Play AI-Melee.bat' --brain classic` in PowerShell.
+
+## Training Lab
+
+The first event of [TrainingMode-CommunityEdition](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition), rebuilt for AI-Melee, with more to come: practise against a dummy that does what you recorded. No AI plays. TM-CE's own code isn't used (it patches the GameCube disc); this is part of the PC game. It runs only when you start the Lab, so a normal match is unchanged.
+
+1. Press **Training Lab** in the launcher (or `play.py --lab` from a terminal).
+2. You're P1. Open P2's door as **HMN** and pick the dummy's character with your cursor, then pick a stage.
+3. In the match, P1's **D-pad** belongs to the Lab (taunting is off):
+
+   | D-pad | keyboard | does |
+   |---|---|---|
+   | Right | H | **save state** |
+   | Left | F | **load state** (stops recording and playback) |
+   | Down | G | **record P2**: your controller drives the dummy while P1 stands still; Down again stops (up to 2 minutes) |
+   | Up | T | **play the recording back** on P2, on a loop, from where it started, while you play P1; Up again stops |
+
+For example, record the dummy's pressure string, recovery or ledge option, then practise against it over and over. Every loop starts from the same moment, and the dummy gets exactly the inputs you recorded. Each action shows in the launcher's status ("Lab: saved state"). The savestate and the recording last until the match ends. Savestates are the netcode's rollback snapshots: a few MB each, taken between two frames.
 
 ## Gomihyu takes over P2 (optional)
 
