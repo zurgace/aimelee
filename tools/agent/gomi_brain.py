@@ -54,6 +54,7 @@ GOMI_NUM_CTX (default 8192: keep it equal to her bot's OLLAMA_NUM_CTX, or
 Ollama reloads the model each time the two take turns).
 """
 
+import itertools
 import json
 import math
 import os
@@ -93,6 +94,7 @@ SAY_EVERY_S = 30.0
 WAITING_WARN_S = 120.0  # a taunt or session end older than this at match start: is her bot running?
 HELD_WARN_S = 40 * 60   # a match: her bot holds those for the session, but not this long
 FAILURES_BEFORE_RULES = 3
+SEND_SEQ = itertools.count()   # outbox file names: unique within a clock tick
 COPY_SHARE = 0.6        # of her choices in neutral, a teacher's clip (when replays taught her the character)
 
 
@@ -212,7 +214,8 @@ class Scoreboard:
 
 def read_lessons(path):
     try:
-        return [ln[2:].strip() for ln in Path(path).read_text().splitlines() if ln.startswith("- ")]
+        return [ln[2:].strip() for ln in Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+                if ln.startswith("- ")]
     except OSError:
         return []
 
@@ -220,7 +223,8 @@ def read_lessons(path):
 def write_lessons(path, lessons):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("# Gomi's lessons\n\n" + "".join(f"- {ln}\n" for ln in lessons))
+    path.write_text("# Gomi's lessons\n\n" + "".join(f"- {ln}\n" for ln in lessons),
+                    encoding="utf-8")       # her words can be anything; Windows' default is cp1252
 
 
 def where(x, y, air, edge):
@@ -554,7 +558,7 @@ class GomiBrain:
         thoughts = self.reflect(record, ctx)
         record.update(review_in_her_words=thoughts["review"], next_drill=thoughts["drill"], goal=thoughts["goal"])
         ctx.char_dir.mkdir(parents=True, exist_ok=True)
-        with open(ctx.char_dir / "matches.jsonl", "a") as f:
+        with open(ctx.char_dir / "matches.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
         if "net" not in record:
             self.save_drill(ctx, thoughts, record["metrics"])
@@ -597,7 +601,9 @@ class GomiBrain:
         past OUTBOX_KEEP the oldest go, in case the bot isn't running."""
         try:
             self.outbox.mkdir(parents=True, exist_ok=True)
-            name = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1000000000:09d}.json"
+            # The counter keeps names unique: Windows' clock (Python 3.12) only ticks every ~15 ms, and a
+            # match and the session end written in the same tick overwrote each other there.
+            name = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1000000000:09d}-{next(SEND_SEQ):06d}.json"
             tmp = self.outbox / (name + ".tmp")
             tmp.write_text(json.dumps(event, indent=1))
             tmp.replace(self.outbox / name)

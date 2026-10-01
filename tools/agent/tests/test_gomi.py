@@ -592,6 +592,25 @@ class GomiTest(unittest.TestCase):
         finally:
             fake.close()
 
+    def test_posts_written_in_the_same_clock_tick_all_stay(self):
+        """Windows' clock (Python 3.12) ticks every ~15 ms: a match and the session end written within one
+        tick had the same file name there, and the session end replaced the match."""
+        b = self.brain("http://127.0.0.1:9/api/chat")
+        with mock.patch.object(gomi_brain.time, "time_ns", return_value=1_234_567_890_123), \
+                mock.patch.object(gomi_brain.time, "strftime", return_value="20261001-000000"):
+            for kind in ("taunt", "match", "session_end"):
+                self.assertTrue(b.send({"version": 1, "kind": kind, "time": 1.0}))
+        files = sorted((Path(self.tmp.name) / "outbox").glob("*.json"))
+        self.assertEqual([json.loads(p.read_text())["kind"] for p in files], ["taunt", "match", "session_end"],
+                         "all three, in the order written")
+
+    def test_lessons_in_any_script(self):
+        """Her lessons are her own words: written and read as UTF-8, not Windows' cp1252."""
+        path = Path(self.tmp.name) / "lessons.md"
+        gomi_brain.write_lessons(path, ["Laser them, mortal 😈", "ゴミは負けない"])
+        self.assertEqual(gomi_brain.read_lessons(path), ["Laser them, mortal 😈", "ゴミは負けない"])
+        self.assertIn("ゴミ".encode(), path.read_bytes())
+
     def test_rules_pick_a_drill_without_ollama(self):
         b = self.brain("http://127.0.0.1:9/api/chat")
         self.play_a_match(b, fall_offstage=2)
