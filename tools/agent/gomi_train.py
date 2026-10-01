@@ -3,9 +3,11 @@
 
 Clips of their inputs (gomi_clips) look nothing like them: a player's style is reactive, each input
 depending on what the opponent just did. This is slippi-ai's own recipe instead (behavior cloning):
-its network, trained to predict a human's next controller input from the game state, fine-tuned on
-the replay owner's Falco games. Tested on the user's July replays: on games it never trained on, it
-predicted their inputs with 39% less error than the same network fine-tuned on everyone else.
+its network, which predicts a player's next controller input from the game state, trained on the
+replay owner's Falco games, starting from medium-v2 (slippi-ai's trained network, the one the newer
+Phillip plays with). Tested on the user's July replays from an untrained network of the same shape:
+on games it never trained on, it predicted their inputs with 39% less error than one trained on
+everyone else's games.
 
 Runs in slippi-ai's environment (tools/agent/slippi-env; the launcher's "Train Gomi's Falco" button
 starts it), on the CPU, on the user's machine: the replays never leave it.
@@ -16,8 +18,8 @@ starts it), on the CPU, on the user's machine: the replays never leave it.
    the Falco games are kept in <gomi>/falco/train/Parsed.
 2. Whose: the player in the most replays is the owner (they're their games, as in gomi_clips).
 3. Train: from the base network (--base, else <gomi>/falco/base-model, else weights/slippi/
-   tx_3x512_with-nana_mlp-items, slippi-ai's imitation network, else weights/slippi/medium-v2),
-   or from her last model when there are new games, a few passes over the owner's Falco games.
+   medium-v2, which play.py downloads for the newer Phillip), or from her last model when there
+   are new games, a few passes over the owner's Falco games.
    One game in five (by its hash, so it stays put as games are added) is held out; every EVAL_EVERY
    steps the error on those is measured, and each time it's the best so far the model is saved as
    <gomi>/falco/model (with model.json: whose, how many games, the error before and now). It stops
@@ -42,7 +44,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 FALCO = 22              # slippi-ai's parsed rows use the internal character ids (melee.Character.FALCO)
-BASE_NAMES = ("tx_3x512_with-nana_mlp-items", "medium-v2")    # in weights/slippi/, best first
+FALCO_NAME = "falco"    # the same, as slippi-ai's dataset filters name it
+BASE_NAMES = ("medium-v2",)    # in weights/slippi/
 EPOCHS = 3              # passes over the owner's games
 MIN_STEPS = 200
 BATCH, UNROLL = 16, 64  # sequences of 64 frames, 16 at a time: ~1.3 s a step on 4 cores
@@ -230,7 +233,7 @@ def train(p, rows, owner, base_path, max_minutes=None):
             config.observation = flag_utils.dataclass_from_dict(type(config.observation), cfg["observation"])
     d = config.dataset
     d.data_dir, d.meta_path = str(p["parsed"]), str(p["meta"])
-    d.allowed_characters, d.allowed_opponents, d.allowed_names = "falco", "all", owner
+    d.allowed_characters, d.allowed_opponents, d.allowed_names = FALCO_NAME, "all", owner
     d.banned_names, d.swap, d.mirror = "none", True, False
     config.data.batch_size, config.data.unroll_length, config.data.num_workers = BATCH, UNROLL, 0
     config.data.shared_memory = False    # its worker processes need "forkserver", which Windows lacks
@@ -258,7 +261,7 @@ def train(p, rows, owner, base_path, max_minutes=None):
     def save(where, loss, done=False):
         out = {k: v for k, v in state.items() if k not in ("rl_config", "agent_config", "opponent")}
         out["config"] = dict(state["config"])
-        out["config"]["dataset"] = dict(out["config"].get("dataset") or {}, allowed_characters="falco",
+        out["config"]["dataset"] = dict(out["config"].get("dataset") or {}, allowed_characters=FALCO_NAME,
                                         allowed_opponents="all")
         out["state"] = dict(policy=tuple(v.numpy() for v in policy.variables))
         tmp = where.with_suffix(".tmp")
@@ -325,7 +328,7 @@ def main():
     base = find_base(args.gomi_dir, args.base)
     if base is None and not p["model"].is_file():
         log("no slippi-ai network to start from: play against slippi-ai once (it downloads medium-v2), "
-            f"or save slippi-ai's imitation network as {p['base']}")
+            f"or save a slippi-ai network as {p['base']}")
         sys.exit(2)
     rows = parse_new(args.replays, p)
     owner = owner_of(rows)

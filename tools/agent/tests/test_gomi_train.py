@@ -2,10 +2,15 @@
 network. The training itself needs slippi-ai's environment (checked end to end on real replays; see
 the commit that added it)."""
 
+import importlib.util
+import os
+import shutil
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -98,6 +103,38 @@ class BaseTest(unittest.TestCase):
             def item(self):
                 return self.v
         self.assertEqual(gt.jsonable({"a": (Scalar(1.5), [Scalar(2)]), 3: "x"}), {"a": [1.5, [2]], "3": "x"})
+
+
+@unittest.skipUnless(os.environ.get("SLIPPI_BASE_MODEL") and importlib.util.find_spec("slippi_ai"),
+                     "needs slippi-ai's environment and SLIPPI_BASE_MODEL (a slippi-ai network, e.g. medium-v2)")
+class TrainTest(unittest.TestCase):
+    """The whole of it on slippi-ai's own sample replay (Sheik vs Mewtwo, both "Diamond Player"),
+    standing in for Falco: parse, train a few steps from the base network, save, and the saved model
+    loads and steps in slippi_agent as the newer Phillip's models do."""
+
+    def test_train_save_and_play(self):
+        from slippi_ai import paths as slippi_paths
+
+        import slippi_agent
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with zipfile.ZipFile(slippi_paths.TOY_DATASET / "Raw" / "single_game.zip") as z:
+            z.extractall(tmp / "replays")
+        small = dict(FALCO=7, FALCO_NAME="sheik", MIN_STEPS=6, EPOCHS=0, EVAL_EVERY=3, EVAL_BATCHES=2)
+        with mock.patch.multiple(gt, **small):
+            p = gt.paths(tmp / "gomi")
+            rows = gt.parse_new(tmp / "replays", p)
+            self.assertEqual(len(rows), 1)
+            owner = gt.owner_of(rows)
+            self.assertEqual(owner, "Diamond Player")
+            gt.train(p, rows, owner, os.environ["SLIPPI_BASE_MODEL"])
+        self.assertTrue(p["model"].is_file(), "a step closer to the game it trains on: saved")
+        import json
+        info = json.loads(p["info"].read_text())
+        self.assertLess(info["loss"], info["base_loss"])
+        self.assertEqual(info["games"], 1)
+        self.assertLess(slippi_agent.probe(p["model"], 60, False), 1000.0)    # loads, plays Sheik, steps
 
 
 if __name__ == "__main__":
