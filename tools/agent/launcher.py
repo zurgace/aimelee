@@ -97,19 +97,6 @@ def play_args(opts):
     return args
 
 
-def lab_args(opts):
-    """play.py's command-line arguments for the Training Lab: the game alone, no AI."""
-    args = ["--lab", "--box-controller", "on" if opts.get("box") else "off"]
-    if opts.get("disc"):
-        args = ["--iso", str(opts["disc"])] + args
-    return args
-
-
-LAB_LEGEND = ("Training Lab: you are P1, the dummy is P2 (open its door as HMN, pick its character with your "
-              "cursor). In a fight, D-pad Right saves state, Left loads it, Down records P2 (your controller "
-              "drives it; Down again stops), Up plays it back on a loop. Keyboard: H, F, G, T.")
-
-
 _STAMP = re.compile(r"^\[\s*[\d.]+\]\s*")  # the game's own log lines carry a timestamp
 
 
@@ -133,13 +120,6 @@ def status_for(line, brain="auto"):
     for prefix, slot, text in rules:
         if line.startswith(prefix):
             return slot, text
-    if line.startswith("play: ") and " in the Training Lab; disc " in line:
-        return "game", "Training Lab running. Press Esc or close the game window to stop."
-    if line.startswith("play: in a fight, D-pad Right saves state"):
-        return "lab", "Controls (P1's D-pad): " + line[len("play: in a fight, "):]
-    m = re.match(r"lab: (.+)$", line)
-    if m and not m.group(1).startswith("Training Lab on"):
-        return "labnow", "Lab: " + m.group(1)
     if line.startswith("play: agents: "):
         return "agents", "2017 agents: " + line[len("play: agents: "):]
     m = re.match(r"play: slippi-ai type: .*?characters: (.*)$", line)
@@ -529,7 +509,6 @@ class Launcher:
         self.training = None     # while a training run is on: its start, last word, progress and message
         self.train_stop = threading.Event()
         self.logfile = None      # ai-melee.log, while play.py runs
-        self.mode = None         # what play.py runs: the AI choice, or "lab"
         self.stopping = False
         self.lines = []
         self.lines_q = queue.Queue()
@@ -630,8 +609,6 @@ class Launcher:
             self.shortcut_button.pack(side="left", padx=(8, 0))
         self.play_button = ttk.Button(bar, text="Play", style="Play.TButton", command=self.play)
         self.play_button.pack(side="right")
-        self.lab_button = ttk.Button(bar, text="Training Lab", command=self.play_lab)
-        self.lab_button.pack(side="right", padx=(0, 8))
         self.stop_button = ttk.Button(bar, text="Quit game", command=self.stop)
 
         self.log_view = scrolledtext.ScrolledText(outer, height=14, width=90, wrap="word",
@@ -868,11 +845,7 @@ class Launcher:
 
     # ---- running play.py ------------------------------------------------
 
-    def play_lab(self):
-        """The Training Lab (play.py --lab): savestates and a recorded P2 dummy, no AI."""
-        self.play(lab=True)
-
-    def play(self, lab=False):
+    def play(self):
         if not self.opts.get("disc") and not self.choose_disc():
             return
         if self.training is not None:
@@ -888,11 +861,7 @@ class Launcher:
             w.destroy()
         self.set_log("")
         self.set_status("start", "Starting...")
-        self.mode = "lab" if lab else "gomi" if self.opts["gomi"] else self.opts["brain"]
-        if lab:
-            self.set_status("lab", LAB_LEGEND)
-        cmd = [str(console_python(sys.executable)), "-u", str(PLAY),
-               *(lab_args(self.opts) if lab else play_args(self.opts))]
+        cmd = [str(console_python(sys.executable)), "-u", str(PLAY), *play_args(self.opts)]
         try:
             self.logfile = open(LOG, "w", encoding="utf-8", errors="replace")
         except OSError:
@@ -907,7 +876,6 @@ class Launcher:
         self.options.pack_forget()
         self.running.pack(fill="x")
         self.play_button.pack_forget()
-        self.lab_button.pack_forget()
         self.stop_button.pack(side="right")
 
     def read(self, proc):
@@ -936,7 +904,7 @@ class Launcher:
                     continue
                 self.lines.append(line)
                 self.append(line)
-                st = status_for(line, self.mode)
+                st = status_for(line, "gomi" if self.opts["gomi"] else self.opts["brain"])
                 if st is not None:
                     self.set_status(*st)
         except queue.Empty:
@@ -953,7 +921,6 @@ class Launcher:
         self.options.pack(fill="x")
         self.stop_button.pack_forget()
         self.play_button.pack(side="right")
-        self.lab_button.pack(side="right", padx=(0, 8))
         if code not in (0, -signal.SIGTERM) and not self.stopping:
             why = failure_text(self.lines) or f"it stopped with code {code}"
             if not self.log_shown:
@@ -969,8 +936,7 @@ class Launcher:
             subprocess.run(stop_command(self.proc.pid, force=False), capture_output=True,
                            creationflags=CREATE_NO_WINDOW)
             proc = self.proc
-            gomi = self.opts.get("gomi") and self.mode != "lab"
-            self.root.after(int(quit_grace_s(gomi) * 1000), lambda: self.force_end(proc))
+            self.root.after(int(quit_grace_s(self.opts.get("gomi")) * 1000), lambda: self.force_end(proc))
         else:
             self.proc.terminate()
 
@@ -1011,8 +977,7 @@ class Launcher:
         self.status[slot] = text
         for w in self.status_box.winfo_children():
             w.destroy()
-        for key in ("start", "setup", "agents", "model", "game", "lab", "labnow", "ai", "match", "gomi", "result",
-                    "goal", "discord"):
+        for key in ("start", "setup", "agents", "model", "game", "ai", "match", "gomi", "result", "goal", "discord"):
             if key in self.status:
                 mark = "✓" if key in ("agents", "model") or self.status[key].startswith("AI ready") else "•"
                 self.ttk.Label(self.status_box, text=f"{mark}  {self.status[key]}", wraplength=520,

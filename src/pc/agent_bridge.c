@@ -5,7 +5,6 @@
 #include "compat.h"
 #include "pc/agent_bridge.h"
 #include "pc/agent_link.h"
-#include "pc/lab.h"
 #include "pc/net.h"
 #include "pc/pc.h"
 
@@ -481,8 +480,7 @@ int pc_agent_css_chars(int door, uint8_t* out, int cap) {
 }
 
 bool pc_agent_css_door(int door) {
-    /* The Training Lab's dummy has no controller either (lab.h). */
-    return (usable() && door == s_port) || pc_lab_css_door(door);
+    return usable() && door == s_port;
 }
 
 void pc_agent_css_picked(int door, int ckind, int among) {

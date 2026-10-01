@@ -68,12 +68,6 @@ Options:
                      as Mario, Fox or Falco (slippi-ai and the 2017 agents stay
                      off): she picks the game plan, and learns after each
                      match (gomi_brain.py; tools/agent/gomi/ keeps her lessons)
-  --lab              the Training Lab instead of an AI: you are P1 and P2 is a
-                     dummy you record and play back (open P2's door as HMN and
-                     pick its character with P1's cursor). In a fight, P1's
-                     D-pad: Right saves state, Left loads it, Down records P2
-                     (your controller drives P2; Down again stops), Up plays the
-                     recording back on a loop (keyboard: H, F, G, T)
   --quick            skip the menus: boot straight into a Falcon match (or
                      --agent's matchup): debug VS, both ports human
   --record FILE      record every state the agent sees (dump_state format;
@@ -422,22 +416,12 @@ def main():
     ap.add_argument("--p2-pick", choices=["on", "off"], default="on",
                     help="opening the AI's door on the character select gives it a random "
                          "character an AI plays (default on)")
-    ap.add_argument("--lab", action="store_true",
-                    help="the Training Lab: savestates and a recorded P2 dummy, no AI")
     ap.add_argument("--record", type=Path)
     ap.add_argument("--tcp", action="store_true")
     ap.add_argument("--opponent", help="with --quick: the other port's character (Phillip name, "
                                        "default the agent's own)")
     args = ap.parse_args()
 
-    if args.lab:
-        if args.gomi or args.agent is not None:
-            fail("--lab is you and a recorded dummy: leave out --gomi and --agent")
-        settings = load_settings()
-        if args.box_controller is not None:
-            settings["box_controller"] = args.box_controller == "on"
-            save_settings(settings)
-        sys.exit(run_lab(find_melee(args.melee), find_disc(args.iso, settings), settings))
     try:
         import numpy  # noqa: F401
     except ImportError:
@@ -545,50 +529,6 @@ def main():
     if args.gomi:
         agent_cmd += ["--exit-with-game"]  # she ends her session (her Discord post) when the game closes
     sys.exit(supervise(game, lambda: subprocess.Popen(agent_cmd), gomi=args.gomi))
-
-
-LAB_CONTROLS = ("D-pad Right saves state, Left loads it, Down records P2 (your controller drives P2; "
-                "Down again stops), Up plays it back on a loop (keyboard: H, F, G, T)")
-
-
-def lab_env(settings, base=None):
-    """The game's environment for the Training Lab: the Lab on, no agent bridge."""
-    env = dict(os.environ if base is None else base)
-    for name in ("MELEE_AGENT_SOCKET", "MELEE_AGENT_CSS_CHARS"):
-        env.pop(name, None)
-    env["MELEE_LAB"] = "1"
-    env.setdefault("MELEE_PREWARM", "0")
-    env["MELEE_ESC_QUITS"] = "1"
-    if settings.get("box_controller"):
-        env.setdefault("MELEE_BOX_CONTROLLER", "1")
-    return env
-
-
-def run_lab(melee, disc, settings):
-    """The Training Lab (src/pc/lab.h): the game alone, until it closes; its exit code."""
-    print(f"play: {melee} in the Training Lab; disc {disc}", flush=True)
-    print("play: Training Lab: you are P1; open P2's door as HMN and pick the dummy's character "
-          "with P1's cursor", flush=True)
-    print(f"play: in a fight, {LAB_CONTROLS}", flush=True)
-    if settings.get("box_controller"):
-        print("play: box controller: sticks read as Dolphin does (--box-controller off to undo)", flush=True)
-    game = subprocess.Popen([str(melee), str(disc)], cwd=str(melee.parent), env=lab_env(settings))
-
-    def stop(*_):
-        if game.poll() is None:
-            game.terminate()
-    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM)}
-    try:
-        game.wait()
-    finally:
-        stop()
-        try:
-            game.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            game.kill()
-        for sig, handler in old.items():
-            signal.signal(sig, handler)
-    return game.returncode or 0
 
 
 def supervise(game, start_agent, gomi=False, log=None, wrap_up=None, restart_delay=1.0):

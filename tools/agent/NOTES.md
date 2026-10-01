@@ -160,7 +160,6 @@ python3 tools/agent/check_phase1.py   # state export, cross-checked against the 
 python3 tools/agent/check_phase2.py   # injection on P2 while P1 plays, hits, disconnect
 python3 tools/agent/check_phase3.py   # Phillip live: no late inputs, latency, kill -9, reconnect
 python3 tools/agent/check_vanilla.py --upstream ../melee-pc-upstream/build/melee
-python3 tools/agent/check_lab.py      # Training Lab: save/load, record P2, playback loops replay exactly
 
 # optional: check the numpy port against Phillip on a real match's observations
 python3 tools/agent/play.py --record /tmp/match.bin   # records what the agent saw

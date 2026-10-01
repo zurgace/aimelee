@@ -55,14 +55,6 @@ Choose your disc with "Change...", pick your options and press Play.
 - Press Esc in the game (also in fullscreen), close its window, or press
   "Quit game" in the launcher to stop; the launcher comes back.
 
-Training Lab: press "Training Lab" instead of Play for a match against a
-dummy you record (no AI). You're P1; open P2's door as HMN and pick its
-character with your cursor. In the match, P1's D-pad (keyboard H F G T):
-  Right  save state
-  Left   load state
-  Down   record P2: your controller drives the dummy; Down again stops
-  Up     play the recording back on P2, on a loop; Up again stops
-
 Options go after the .bat name in a console, for example:
 
     "Play AI-Melee.bat" --quick                  skip the menus
