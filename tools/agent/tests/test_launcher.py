@@ -2,6 +2,7 @@
 (with Tk and Xvfb) the window running a fake play.py to the end."""
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -123,6 +124,15 @@ class StatusTest(unittest.TestCase):
 
     def test_failure_text(self):
         self.assertEqual(launcher.failure_text(["x", "play: no disc image.", "", "Traceback"]), "no disc image.")
+        self.assertEqual(launcher.failure_text(["tmce: TM-CE runs in Dolphin, and no Dolphin was found."]),
+                         "TM-CE runs in Dolphin, and no Dolphin was found.")
+
+    def test_training_mode_lines(self):
+        self.check("tmce: applying the TM-CE patch TM-CE.xdelta to your disc GALE01.iso...",
+                   ("setup", "Applying TM-CE's patch to your disc (first time only)..."), brain="tmce")
+        self.check("tmce: TM-CE in /usr/bin/dolphin-emu: /d/TM-CE.iso",
+                   ("game", "Training Mode (TM-CE) is running in Dolphin. Close Dolphin to come back."),
+                   brain="tmce")
         self.assertIsNone(launcher.failure_text(["nothing"]))
 
 
@@ -340,11 +350,16 @@ WINDOW_RUN = textwrap.dedent("""
     import play, launcher
     play.SETTINGS = tmp / "settings.json"
     launcher.PLAY = tmp / "fake_play.py"
+    launcher.TMCE = tmp / "fake_tmce.py"
     launcher.LOG = tmp / "ai-melee.log"
+    mode = sys.argv[3] if len(sys.argv) > 3 else "play"
     import tkinter as tk
     from tkinter import filedialog, messagebox, scrolledtext, ttk
     l = launcher.Launcher(tk, ttk, filedialog, messagebox, scrolledtext)
     l.opts["disc"] = str(tmp / "GALE01.iso")
+    if mode == "tmce-first":         # nothing set up: the two questions, answered
+        l.ask_dolphin = lambda: str(tmp / "dolphin")
+        l.ask_tmce_file = lambda: str(tmp / "TM-CE v1.0.xdelta")
     seen = []
     orig = l.set_status
     l.set_status = lambda slot, text: (seen.append(text), orig(slot, text))
@@ -353,10 +368,14 @@ WINDOW_RUN = textwrap.dedent("""
         l.root.update()
         print("STATUS", seen, flush=True)
         print("OPTIONS_BACK", l.options.winfo_ismapped(), flush=True)
+        print("TMCE_LABEL", l.tmce_label.cget("text"), flush=True)
         l.root.destroy()
     orig_finished = l.finished
     l.finished = done
-    l.root.after(200, l.play)
+    def started():
+        print("BUTTONS", l.play_button.winfo_ismapped(), l.tmce_button.winfo_ismapped(), flush=True)
+    l.root.after(200, l.play if mode == "play" else l.play_tmce)
+    l.root.after(600, started)
     l.root.after(20000, l.root.destroy)
     l.root.mainloop()
 """)
@@ -482,6 +501,41 @@ class WindowTest(unittest.TestCase):
             self.assertIn("AI ready: pick your characters and play", r.stdout, r.stderr[-2000:])
             self.assertIn("OPTIONS_BACK 1", r.stdout)
             self.assertIn("model ready", (Path(tmp) / "ai-melee.log").read_text())
+
+    FAKE_TMCE = ("import json, sys, time\n"
+                 "print('ARGS', json.dumps(sys.argv[1:]), flush=True)\n"
+                 "print('tmce: TM-CE in /x/dolphin: /x/TM-CE.iso', flush=True)\n"
+                 "time.sleep(1)\n")
+
+    def run_window(self, tmp, mode):
+        (Path(tmp) / "GALE01.iso").write_bytes(b"")
+        (Path(tmp) / "fake_tmce.py").write_text(self.FAKE_TMCE)
+        r = subprocess.run(["xvfb-run", "-a", sys.executable, "-c", WINDOW_RUN, str(AGENT), tmp, mode],
+                           capture_output=True, text=True, timeout=60)
+        return r
+
+    def test_training_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("dolphin", "TM-CE.iso"):
+                (Path(tmp) / name).write_bytes(b"")
+            (Path(tmp) / "settings.json").write_text(json.dumps(
+                {"tmce": {"dolphin": str(Path(tmp) / "dolphin"), "iso": str(Path(tmp) / "TM-CE.iso")}}))
+            r = self.run_window(tmp, "tmce")
+            self.assertIn('ARGS []', (Path(tmp) / "ai-melee.log").read_text(), r.stderr[-2000:])
+            self.assertIn("BUTTONS 0 0", r.stdout)
+            self.assertIn("Training Mode (TM-CE) is running in Dolphin", r.stdout)
+            self.assertIn("OPTIONS_BACK 1", r.stdout)
+            self.assertIn("TMCE_LABEL TM-CE.iso", r.stdout)
+
+    def test_training_mode_first_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("dolphin", "TM-CE v1.0.xdelta"):
+                (Path(tmp) / name).write_bytes(b"")
+            r = self.run_window(tmp, "tmce-first")
+            log = (Path(tmp) / "ai-melee.log").read_text()
+            want = ["--dolphin", str(Path(tmp) / "dolphin"), "--patch", str(Path(tmp) / "TM-CE v1.0.xdelta"),
+                    "--disc", str(Path(tmp) / "GALE01.iso")]
+            self.assertIn("ARGS " + json.dumps(want), log, r.stderr[-2000:])
 
 
 if __name__ == "__main__":

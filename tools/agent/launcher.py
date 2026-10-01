@@ -49,6 +49,9 @@ CREATE_NO_WINDOW = 0x08000000  # Windows: run play.py (and what it starts) witho
 sys.path.insert(0, str(HERE))
 
 import play  # noqa: E402  (no numpy needed at import)
+import tmce  # noqa: E402
+
+TMCE = HERE / "tmce.py"
 
 BRAINS = [
     ("auto", "Best available (newer Phillip, 2017 agents for the rest)"),
@@ -120,6 +123,10 @@ def status_for(line, brain="auto"):
     for prefix, slot, text in rules:
         if line.startswith(prefix):
             return slot, text
+    if line.startswith("tmce: applying the TM-CE patch"):
+        return "setup", "Applying TM-CE's patch to your disc (first time only)..."
+    if line.startswith("tmce: TM-CE in "):
+        return "game", "Training Mode (TM-CE) is running in Dolphin. Close Dolphin to come back."
     if line.startswith("play: agents: "):
         return "agents", "2017 agents: " + line[len("play: agents: "):]
     m = re.match(r"play: slippi-ai type: .*?characters: (.*)$", line)
@@ -267,10 +274,11 @@ def train_command(python, replays, gomi):
 
 
 def failure_text(lines):
-    """play.py's own explanation of why it stopped (its fail() line)."""
+    """play.py's (or tmce.py's) own explanation of why it stopped (its fail() line)."""
     for line in reversed(lines):
-        if line.startswith("play: "):
-            return line[len("play: "):]
+        for prefix in ("play: ", "tmce: "):
+            if line.startswith(prefix):
+                return line[len(prefix):]
     return None
 
 
@@ -509,6 +517,8 @@ class Launcher:
         self.training = None     # while a training run is on: its start, last word, progress and message
         self.train_stop = threading.Event()
         self.logfile = None      # ai-melee.log, while play.py runs
+        self.mode = None         # what runs: the AI choice, "gomi", or "tmce" (Training Mode)
+        self.tmce_pending = None  # tmce.py's arguments for a TM-CE patch picked with Change...
         self.stopping = False
         self.lines = []
         self.lines_q = queue.Queue()
@@ -593,6 +603,13 @@ class Launcher:
         self.disc_label.pack(side="left", padx=6)
         ttk.Button(disc, text="Change...", command=self.choose_disc).pack(side="right")
         self.show_disc()
+        tm = ttk.Frame(game)
+        tm.pack(fill="x", pady=(6, 0))
+        ttk.Label(tm, text="Training Mode (TM-CE):").pack(side="left")
+        self.tmce_label = ttk.Label(tm, text="")
+        self.tmce_label.pack(side="left", padx=6)
+        ttk.Button(tm, text="Change...", command=self.choose_tmce).pack(side="right")
+        self.show_tmce()
 
         # Status (while playing)
         self.running = ttk.Frame(body)
@@ -609,6 +626,8 @@ class Launcher:
             self.shortcut_button.pack(side="left", padx=(8, 0))
         self.play_button = ttk.Button(bar, text="Play", style="Play.TButton", command=self.play)
         self.play_button.pack(side="right")
+        self.tmce_button = ttk.Button(bar, text="Training Mode", command=self.play_tmce)
+        self.tmce_button.pack(side="right", padx=(0, 8))
         self.stop_button = ttk.Button(bar, text="Quit game", command=self.stop)
 
         self.log_view = scrolledtext.ScrolledText(outer, height=14, width=90, wrap="word",
@@ -670,6 +689,96 @@ class Launcher:
             self.show_disc()
             self.save()
         return bool(self.opts.get("disc"))
+
+    # ---- Training Mode (TM-CE, in Dolphin) -------------------------------
+
+    def show_tmce(self):
+        tm = self.settings.get("tmce", {})
+        iso = tmce.find_iso(tm)
+        if self.tmce_pending:
+            text = f"{Path(self.tmce_pending[1]).name} (patched when you press Training Mode)"
+        elif iso is not None:
+            text = iso.name
+        else:
+            text = "(not set up: press Training Mode)"
+        self.tmce_label.configure(text=text)
+
+    def ask_dolphin(self):
+        """The Dolphin program, picked by hand; None if cancelled."""
+        self.messagebox.showinfo(
+            "AI-Melee", "Training Mode is TM-CE (TrainingMode-CommunityEdition), and it runs in Dolphin, "
+            "not in AI-Melee's game. No Dolphin was found: install Dolphin (dolphin-emu.org) or Slippi "
+            "Launcher (slippi.gg), or pick the Dolphin program next.", parent=self.root)
+        path = self.filedialog.askopenfilename(
+            parent=self.root, title="The Dolphin program (Dolphin, or Slippi Dolphin)",
+            initialdir=str(Path.home()),
+            filetypes=[("Programs", "*.exe" if WINDOWS else "*"), ("All files", "*")]) or None
+        return path if path and Path(path).is_file() else None
+
+    def ask_tmce_file(self):
+        """TM-CE's patch or a patched TM-CE disc image, picked by hand; None if cancelled."""
+        if self.messagebox.askyesno(
+                "AI-Melee", "Training Mode needs TM-CE, which AI-Melee doesn't include. Its release is a "
+                "patch for your Melee disc (an .xdelta file); AI-Melee applies it for you.\n\n"
+                "Open TM-CE's download page now? Then pick the patch you downloaded (or a TM-CE .iso you "
+                "already have).", parent=self.root):
+            import webbrowser
+            webbrowser.open(tmce.RELEASES)
+        path = self.filedialog.askopenfilename(
+            parent=self.root, title="TM-CE's patch (.xdelta) or a TM-CE disc image",
+            initialdir=str(Path.home() / "Downloads"),
+            filetypes=[("TM-CE patch or disc image", "*.xdelta *.vcdiff *.xdelta3 *.iso *.gcm"),
+                       ("All files", "*")]) or None
+        return path if path and Path(path).is_file() else None
+
+    def tmce_file_args(self, path):
+        """tmce.py's arguments for a picked file: a patch is applied to your disc (picked if need be)."""
+        if not tmce.is_patch(path):
+            return ["--iso", path]
+        if not self.opts.get("disc") and not self.choose_disc():
+            return None
+        return ["--patch", path, "--disc", str(self.opts["disc"])]
+
+    def choose_tmce(self):
+        path = self.ask_tmce_file()
+        if path is None:
+            return
+        args = self.tmce_file_args(path)
+        if args is None:
+            return
+        self.tmce_pending = None
+        if args[0] == "--iso":
+            self.settings.setdefault("tmce", {})["iso"] = str(Path(path).resolve())
+        else:
+            self.tmce_pending = args
+        if (tmce.find_dolphin(self.settings.get("tmce", {})) is not None
+                and self.messagebox.askyesno("AI-Melee", "Pick a different Dolphin program too?",
+                                             parent=self.root)):
+            dolphin = self.ask_dolphin()
+            if dolphin:
+                self.settings.setdefault("tmce", {})["dolphin"] = str(Path(dolphin).resolve())
+        self.save()
+        self.show_tmce()
+
+    def play_tmce(self):
+        """Training Mode: TM-CE in Dolphin (tmce.py), set up on the first press."""
+        tm = self.settings.get("tmce", {})
+        args = []
+        if tmce.find_dolphin(tm) is None:
+            dolphin = self.ask_dolphin()
+            if dolphin is None:
+                return
+            args += ["--dolphin", dolphin]
+        if self.tmce_pending:
+            args += self.tmce_pending
+        elif tmce.find_iso(tm) is None:
+            path = self.ask_tmce_file()
+            picked = self.tmce_file_args(path) if path else None
+            if picked is None:
+                return
+            args += picked
+        self.tmce_pending = None
+        self.play(tmce_args=args)
 
     def show_replays(self):
         self.replays_label.configure(text=Path(self.opts["replays"]).name if self.opts.get("replays")
@@ -845,8 +954,8 @@ class Launcher:
 
     # ---- running play.py ------------------------------------------------
 
-    def play(self):
-        if not self.opts.get("disc") and not self.choose_disc():
+    def play(self, tmce_args=None):
+        if tmce_args is None and not self.opts.get("disc") and not self.choose_disc():
             return
         if self.training is not None:
             if not self.messagebox.askyesno("AI-Melee", "Gomi's Falco is still training, and the game would "
@@ -861,7 +970,12 @@ class Launcher:
             w.destroy()
         self.set_log("")
         self.set_status("start", "Starting...")
-        cmd = [str(console_python(sys.executable)), "-u", str(PLAY), *play_args(self.opts)]
+        if tmce_args is not None:
+            self.mode = "tmce"
+            cmd = [str(console_python(sys.executable)), "-u", str(TMCE), *tmce_args]
+        else:
+            self.mode = "gomi" if self.opts["gomi"] else self.opts["brain"]
+            cmd = [str(console_python(sys.executable)), "-u", str(PLAY), *play_args(self.opts)]
         try:
             self.logfile = open(LOG, "w", encoding="utf-8", errors="replace")
         except OSError:
@@ -876,6 +990,7 @@ class Launcher:
         self.options.pack_forget()
         self.running.pack(fill="x")
         self.play_button.pack_forget()
+        self.tmce_button.pack_forget()
         self.stop_button.pack(side="right")
 
     def read(self, proc):
@@ -904,7 +1019,7 @@ class Launcher:
                     continue
                 self.lines.append(line)
                 self.append(line)
-                st = status_for(line, "gomi" if self.opts["gomi"] else self.opts["brain"])
+                st = status_for(line, self.mode)
                 if st is not None:
                     self.set_status(*st)
         except queue.Empty:
@@ -921,6 +1036,9 @@ class Launcher:
         self.options.pack(fill="x")
         self.stop_button.pack_forget()
         self.play_button.pack(side="right")
+        self.tmce_button.pack(side="right", padx=(0, 8))
+        self.settings["tmce"] = play.load_settings().get("tmce", {})    # tmce.py keeps what it set up there
+        self.show_tmce()
         if code not in (0, -signal.SIGTERM) and not self.stopping:
             why = failure_text(self.lines) or f"it stopped with code {code}"
             if not self.log_shown:
@@ -936,7 +1054,8 @@ class Launcher:
             subprocess.run(stop_command(self.proc.pid, force=False), capture_output=True,
                            creationflags=CREATE_NO_WINDOW)
             proc = self.proc
-            self.root.after(int(quit_grace_s(self.opts.get("gomi")) * 1000), lambda: self.force_end(proc))
+            gomi = self.opts.get("gomi") and self.mode != "tmce"
+            self.root.after(int(quit_grace_s(gomi) * 1000), lambda: self.force_end(proc))
         else:
             self.proc.terminate()
 
