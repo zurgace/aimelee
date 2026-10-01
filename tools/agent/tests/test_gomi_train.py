@@ -146,6 +146,51 @@ class TrainTest(unittest.TestCase):
         self.assertEqual(info["games"], 1)
         self.assertLess(slippi_agent.probe(p["model"], 60, False), 1000.0)    # loads, plays Sheik, steps
 
+    def test_pause_and_pick_up(self):
+        """Paused mid-run (the pause file, as the launcher's button leaves it), it saves where it is; the next
+        run picks up at that step, with the network and its optimizer as they were, and finishes."""
+        import json
+
+        import numpy as np
+        from slippi_ai import paths as slippi_paths
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with zipfile.ZipFile(slippi_paths.TOY_DATASET / "Raw" / "single_game.zip") as z:
+            z.extractall(tmp / "replays")
+        small = dict(FALCO=7, FALCO_NAME="sheik", MIN_STEPS=6, EPOCHS=0, EVAL_EVERY=3, EVAL_BATCHES=2,
+                     PROGRESS_EVERY_S=0)
+        p = gt.paths(tmp / "gomi")
+        lines = []
+
+        def log(msg):
+            lines.append(msg)
+            print(f"gomi-train: {msg}")
+            if msg.startswith("step 1/6 ("):          # the button, pressed while it trains
+                p["pause"].write_text("")
+        with mock.patch.multiple(gt, log=log, **small):
+            rows = gt.parse_new(tmp / "replays", p)
+            owner = gt.owner_of(rows)
+            gt.train(p, rows, owner, os.environ["SLIPPI_BASE_MODEL"])
+            self.assertIn("paused at step 2/6 (33%); train again to pick up from here", lines)
+            self.assertFalse(p["pause"].exists(), "the request is used up")
+            self.assertEqual(gt.read_progress(tmp / "gomi")["step"], 2)
+            self.assertTrue(gt.read_progress(tmp / "gomi")["paused"])
+            import pickle
+            with open(p["latest"], "rb") as f:
+                saved = pickle.load(f)
+            self.assertTrue(any(np.any(v) for v in saved["optimizer"]), "Adam's state is in it")
+            lines.clear()
+            gt.train(p, rows, owner, os.environ["SLIPPI_BASE_MODEL"])
+        self.assertTrue(any(ln.startswith("picking up at step 2/6 (33%): best ") for ln in lines), lines)
+        self.assertFalse(any(ln.startswith("before: ") for ln in lines), "no fresh start")
+        self.assertFalse(any(ln.startswith("step 1/6") or ln.startswith("step 2/6") for ln in lines),
+                         "steps 1 and 2 aren't done again")
+        self.assertTrue(any(ln.startswith("step 6/6: ") for ln in lines), lines)
+        self.assertIsNone(gt.read_progress(tmp / "gomi"), "finished: nothing left to pick up")
+        self.assertFalse(p["latest"].exists())
+        self.assertTrue(json.loads(p["info"].read_text())["done"])
+
 
 if __name__ == "__main__":
     unittest.main()

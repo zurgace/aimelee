@@ -23,7 +23,11 @@ starts it), on the CPU, on the user's machine: the replays never leave it.
    One game in five (by its hash, so it stays put as games are added) is held out; every EVAL_EVERY
    steps the error on those is measured, and each time it's the best so far the model is saved as
    <gomi>/falco/model (with model.json: whose, how many games, the error before and now). It stops
-   when the error stops improving, or when stopped: the best so far is kept either way.
+   when the error stops improving.
+4. Pause: a file named "pause" in <gomi>/falco/train (the launcher's Pause training button; SIGTERM
+   too) makes it save where it is (the network, its optimizer's state, the step: train/latest.pkl,
+   and train/progress.json for the launcher) and exit; the next run picks up at that step. It also
+   saves every CHECKPOINT_EVERY_S, so even a killed run loses little.
 
 slippi-ai plays that model as her Falco (slippi_agent.py --gomi-falco) while Gomi herself watches,
 reviews and posts (gomi_brain's watching mode).
@@ -32,12 +36,15 @@ reviews and posts (gomi_brain's watching mode).
 import argparse
 import contextlib
 import dataclasses
-import io
 import hashlib
+import io
 import json
 import math
 import os
+import pickle
+import signal
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -57,8 +64,9 @@ BATCH, UNROLL = 16, 64  # sequences of 64 frames, 16 at a time: ~1.3 s a step on
 LEARNING_RATE = 3e-5
 EVAL_EVERY = 100        # steps
 PROGRESS_EVERY_S = 20   # a progress line at least this often while training: it's visibly still going
+CHECKPOINT_EVERY_S = 600    # where it is, saved this often (and when paused)
 EVAL_BATCHES = 20
-PATIENCE = 3            # evaluations without a new best before it stops
+PATIENCE = 5            # checks without a new best before it stops
 HELD_OUT = 5            # one game in HELD_OUT is held out
 MIN_DAMAGE = 100        # slippi_db's make_local_dataset: a game where hardly anything happened is left out
 
@@ -74,7 +82,22 @@ def paths(gomi_dir):
     train = falco / "train"
     return {"falco": falco, "train": train, "parsed": train / "Parsed", "rows": train / "parsed.json",
             "meta": train / "meta.json", "latest": train / "latest.pkl", "model": falco / "model",
-            "info": falco / "model.json", "base": falco / "base-model"}
+            "info": falco / "model.json", "base": falco / "base-model", "pause": train / "pause",
+            "progress": train / "progress.json"}
+
+
+def read_progress(gomi_dir):
+    """Where a paused (or interrupted) run is, for the launcher: {"step", "steps", "seconds_per_step",
+    "paused"}, or None when there's nothing to pick up."""
+    p = paths(gomi_dir)
+    try:
+        progress = json.loads(p["progress"].read_text())
+    except (OSError, ValueError):
+        return None
+    return progress if p["latest"].is_file() and progress.get("step") else None
+
+
+PAUSE = threading.Event()   # SIGTERM: pause at the next step, as the pause file does
 
 
 def find_base(gomi_dir, explicit=None):
@@ -207,13 +230,17 @@ def parse_new(source, p):
 # ---------------------------------------------------------------- 3. train
 
 def train(p, rows, owner, base_path, max_minutes=None):
-    """Fine-tune on the owner's Falco games; the best model so far is saved as it goes."""
-    import pickle
-
+    """Fine-tune on the owner's Falco games; the best model so far is saved as it goes, and a pause (the
+    pause file, SIGTERM) saves where it is for the next run to pick up."""
     import numpy as np
+    import tensorflow as tf
     from slippi_ai import data as data_lib, flag_utils, saving as generic_saving
     from slippi_ai.tf import learner as learner_lib, saving, train_lib
 
+    if PAUSE.is_set() or p["pause"].exists():          # paused while it was still reading replays
+        p["pause"].unlink(missing_ok=True)
+        log("paused before training began; train again to start")
+        return
     games = [r for r in rows.values() if falco_game(r, owner) is None]
     train_rows, test_rows = split(games)
     p["meta"].write_text(json.dumps(games))
@@ -221,13 +248,22 @@ def train(p, rows, owner, base_path, max_minutes=None):
         info = json.loads(p["info"].read_text())
     except (OSError, ValueError):
         info = {}
+    resume = None
+    try:
+        with open(p["latest"], "rb") as f:
+            resume = pickle.load(f)
+        if resume.get("player") != owner:
+            resume = None
+    except (OSError, pickle.UnpicklingError, EOFError, AttributeError, ValueError):
+        resume = None
     start = p["model"] if p["model"].is_file() and info.get("player") == owner else base_path
-    if start == p["model"] and info.get("games") == len(games) and info.get("done"):
+    if resume is None and start == p["model"] and info.get("games") == len(games) and info.get("done"):
         log(f"her Falco has already learned from all {len(games)} of your Falco games")
         return
     state = generic_saving.load_state_from_disk(str(start))    # older models (medium-v2) need its unpickler
+    begin = "where she paused" if resume else "her last model" if start == p["model"] else Path(start).name
     log(f"learning from {len(train_rows)} of your Falco games ({len(test_rows)} held out to check her on), "
-        f"starting from {'her last model' if start == p['model'] else Path(start).name}")
+        f"starting from {begin}")
 
     cfg = generic_saving.upgrade_config(state["config"])
     try:
@@ -257,14 +293,23 @@ def train(p, rows, owner, base_path, max_minutes=None):
     kw = dict(name_map=state.get("name_map") or {"": 0}, extra_frames=policy.delay + 1,
               observation_config=config.observation, **dataclasses.asdict(config.data))
     train_src = data_lib.make_source(replays=[r for r in replays if r.meta.slp_md5 in train_md5], **kw)
-    test_src = data_lib.make_source(replays=[r for r in replays if r.meta.slp_md5 in test_md5], **kw)
+    # The same held-out samples at every check (and after a pause): checks compare like with like, so the
+    # best model really is the best, and a noisy check can't end the run early.
+    test_src = data_lib.make_source(replays=[r for r in replays if r.meta.slp_md5 in test_md5], seed=0, **kw)
+    held_out = []
+    for _ in range(EVAL_BATCHES):
+        batch = next(test_src)[0].batch
+        state_action = policy.network.encode(data_lib.StateAction(batch.game, batch.game.p0.controller, batch.name))
+        held_out.append(tf.nest.map_structure(tf.convert_to_tensor, data_lib.Frames(
+            state_action=state_action, is_resetting=batch.is_resetting, reward=batch.reward)))
+    test_src.shutdown()
 
     def evaluate():
-        m = train_lib.TrainManager(learner, test_src, dict(train=False))
-        try:
-            return float(np.mean([np.mean(m.step()[0]["policy"]["loss"]) for _ in range(EVAL_BATCHES)]))
-        finally:
-            m.stop()
+        losses = []
+        for frames in held_out:
+            stats, _ = learner.step(frames, learner.initial_state(BATCH), train=False)
+            losses.append(float(np.mean(stats["policy"]["loss"])))
+        return float(np.mean(losses))
 
     def save(where, loss, done=False):
         out = {k: v for k, v in state.items() if k not in ("rl_config", "agent_config", "opponent")}
@@ -283,20 +328,63 @@ def train(p, rows, owner, base_path, max_minutes=None):
                         trained=time.strftime("%Y-%m-%d %H:%M:%S"))
             p["info"].write_text(json.dumps(info, indent=1))
 
-    first = best = evaluate()
-    log(f"before: {first:.2f} error on your held-out games")
     steps = steps_for(train_rows)
-    deadline = time.monotonic() + max_minutes * 60 if max_minutes else None
     manager = train_lib.TrainManager(learner, train_src, dict(train=True))
-    stale, t0, done = 0, time.monotonic(), False
-    said = t0
+    if resume is None:
+        first = best = evaluate()
+        log(f"before: {first:.2f} error on your held-out games")
+        i0, stale, ran_s = 0, 0, 0.0
+    else:
+        manager.step(compiled=False)                  # Adam's slots exist only after a step: then overwrite
+        for var, value in zip(policy.variables, resume["policy"], strict=True):
+            var.assign(value)
+        for var, value in zip(learner.policy_optimizer.variables, resume["optimizer"], strict=True):
+            var.assign(value)
+        first, best, stale, ran_s = resume["first"], resume["best"], resume["stale"], resume["ran_s"]
+        if resume.get("held_out") != sorted(test_md5):
+            best = evaluate()                         # new games since the pause: a new yardstick
+            log(f"new games since the pause: {best:.2f} error on the held-out games now")
+        i0 = min(resume["step"], steps - 1)
+        log(f"picking up at step {i0}/{steps} ({i0 / steps:.0%}): best {best:.2f} so far, before {first:.2f}")
+
+    def checkpoint(i, paused):
+        """Where it is: the next run picks up at step i."""
+        p["train"].mkdir(parents=True, exist_ok=True)
+        tmp = p["latest"].with_suffix(".tmp")
+        with open(tmp, "wb") as f:
+            pickle.dump(dict(version=1, player=owner, step=i, first=first, best=best, stale=stale,
+                             held_out=sorted(test_md5),
+                             ran_s=ran_s + time.monotonic() - t0,
+                             policy=tuple(v.numpy() for v in policy.variables),
+                             optimizer=tuple(v.numpy() for v in learner.policy_optimizer.variables)), f)
+        tmp.replace(p["latest"])
+        per_step = (time.monotonic() - t0) / max(1, i - i0)
+        p["progress"].write_text(json.dumps(dict(step=i, steps=steps, seconds_per_step=round(per_step, 3),
+                                                 paused=paused, best=round(best, 3), first=round(first, 3))))
+
+    def forget_checkpoint():
+        for f in (p["latest"], p["progress"], p["pause"]):
+            f.unlink(missing_ok=True)
+
+    deadline = time.monotonic() + max_minutes * 60 if max_minutes else None
+    t0, done, paused = time.monotonic(), False, False
+    said = saved = t0
     try:
-        for i in range(1, steps + 1):
+        for i in range(i0 + 1, steps + 1):
             manager.step(compiled=False if i == 1 else None)     # the first creates Adam's slots
+            if PAUSE.is_set() or p["pause"].exists():
+                checkpoint(i, paused=True)
+                p["pause"].unlink(missing_ok=True)
+                log(f"paused at step {i}/{steps} ({i / steps:.0%}); train again to pick up from here")
+                paused = True
+                break
+            if time.monotonic() - saved >= CHECKPOINT_EVERY_S:
+                saved = time.monotonic()
+                checkpoint(i, paused=False)
             if i % EVAL_EVERY and i != steps:
                 if time.monotonic() - said >= PROGRESS_EVERY_S:
                     said = time.monotonic()
-                    left = (steps - i) * (said - t0) / i
+                    left = (steps - i) * (said - t0) / (i - i0)
                     log(f"step {i}/{steps} ({i / steps:.0%}), about {left / 60:.0f} min to go")
                 continue
             log("checking her on your held-out games...")
@@ -307,7 +395,7 @@ def train(p, rows, owner, base_path, max_minutes=None):
                 save(p["model"], loss)
             else:
                 stale += 1
-            left = (steps - i) * (time.monotonic() - t0) / i
+            left = (steps - i) * (time.monotonic() - t0) / (i - i0)
             log(f"step {i}/{steps}: {loss:.2f} error on your held-out games (best {best:.2f}, "
                 f"before {first:.2f}); about {left / 60:.0f} min to go")
             if stale >= PATIENCE:
@@ -315,12 +403,17 @@ def train(p, rows, owner, base_path, max_minutes=None):
                 done = True
                 break
             if deadline and time.monotonic() > deadline:
-                log("out of time for now; train again to go on")
+                checkpoint(i, paused=True)
+                log("out of time for now; train again to pick up from here")
+                paused = True
                 break
         else:
             done = True
     finally:
         manager.stop()
+    if paused:
+        return
+    forget_checkpoint()                               # finished: nothing to pick up
     if p["model"].is_file() and done:
         info["done"] = True
         p["info"].write_text(json.dumps(info, indent=1))
@@ -340,6 +433,7 @@ def main():
     args = ap.parse_args()
 
     p = paths(args.gomi_dir)
+    signal.signal(signal.SIGTERM, lambda *_: PAUSE.set())    # asked to stop: pause, so it can pick up again
     base = find_base(args.gomi_dir, args.base)
     if base is None and not p["model"].is_file():
         log("no slippi-ai network to start from: play against slippi-ai once (it downloads medium-v2), "
