@@ -14,7 +14,7 @@ without importing it or TensorFlow:
 import itertools
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import bridge
 
