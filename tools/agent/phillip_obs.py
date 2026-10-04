@@ -4,7 +4,8 @@ Everything here mirrors vladfi1/phillip (MIT) as of its last commit,
 without importing it or TensorFlow:
 
 - PlayerObs is ssbm.PlayerMemory: the fields Phillip's memory watcher read,
-  with the same sources (see NOTES.md / PLAN.md for the mapping).
+  with the same sources (each field's offset is commented in src/pc/agent_bridge.c
+  capture_fighter; the original analysis: git show 9892749:tools/agent/PLAN.md).
 - The action sets are ssbm.actionTypes; a SimpleController is a button plus
   a main stick position in [0, 1]^2.
 - dolphin_pad() turns a controller into the PADStatus the game would have

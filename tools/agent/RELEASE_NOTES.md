@@ -4,4 +4,6 @@ AI-Melee: play Super Smash Bros. Melee on PC against the Phillip AI (built on [m
 
 **Linux:** build from source; see [the README](https://github.com/zurgace/aimelee#install-on-linux-cachyos).
 
+**Training Mode** opens [TM-CE](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition) in Dolphin; install Dolphin or Slippi Launcher and download TM-CE yourself (patch your disc as its release says).
+
 No game data is included. The build isn't code-signed, so Windows SmartScreen asks once (More info → Run anyway).
