@@ -27,6 +27,7 @@ extern void browser_yield(void);
 #include "pc/widescreen.h"
 #include "pc/net.h"
 #include "pc/net_chat.h"
+#include "pc/input_poll.h"
 #include <melee/if/ifnetchat.h>
 #include <dolphin/pad.h>
 #include "pc/net_lan.h"
@@ -195,6 +196,13 @@ void pc_frame_boundary(void) {
             pc_log_line("net timing: aurora_update %.1f ms at retrace %u frame %d", elapsed / 1e6,
                 s_retrace_count, pc_net_frame());
     }
+#ifndef __EMSCRIPTEN__ /* the page delivers pads; a worker cannot poll them */
+    /* Gamepad + GC adapter at 1 kHz; a no-op once running. Not before the first
+     * aurora_update: that runs SDL_Init(JOYSTICK), and until it returns SDL's
+     * joystick lock does not exist, so the thread's SDL_hid_enumerate ran beside
+     * SDL's own init scan and the game segfaulted in wcslen at start-up. */
+    pc_input_poll_init();
+#endif
     /* MELEE_ESC_QUITS (set by AI-Melee's play.py): Esc closes the game, e.g.
      * when it opened fullscreen. Not while the F1 overlay is open: there Esc
      * closes the overlay. Plain melee-pc leaves Esc alone. */
