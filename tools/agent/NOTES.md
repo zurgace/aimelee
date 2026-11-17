@@ -1,312 +1,94 @@
-# Agent bridge: running notes
+# AI-Melee developer notes
 
-A running record of decisions, open questions and known gaps for the Phillip agent bridge. The
-plan it started from is [PLAN.md](PLAN.md); where the two disagree, this file is current.
+Decisions, verified facts and known gaps. [CLAUDE.md](../../CLAUDE.md) has the rules, the file map and
+what's next; the player guide is the [README](../../README.md).
 
 ## Decisions
 
-| Date | Decision | Why |
-|---|---|---|
-| 2026-09-28 | This repo is a fork of 999sian/melee-pc (full history); work goes on `claude/eager-planck-jptjp9`. | You can add it as a remote in `./melee-pc`, and rebasing onto upstream stays a plain git operation. |
-| 2026-09-28 | The agent runs as a separate Python process over an AF_UNIX `SOCK_STREAM` socket, with the game as server. | The Python agent can be checked frame by frame against the real Phillip code, and later agents (e.g. slippi-ai) can use the same socket. |
-| 2026-09-28 | Rejected: modding doldecomp/melee directly. | It only builds a GameCube executable, so we would be back in Dolphin. |
-| 2026-09-28 | Rejected: replacing Melee's CPU AI. | That edits game logic and bypasses the controller path Phillip was trained on. |
-| 2026-09-28 | Rejected, for now: running Phillip inside the game in C. | A C port is harder to check against Phillip and closes the door on Python agents. The verified numpy code can serve as its reference later. |
-| 2026-09-28 | The live agent uses a numpy forward pass. TF 2.13 (Python 3.11 via `uv`) is used only to export weights and verify against Phillip. | Keeps TF bit-rot and GPU drivers out of the game loop. |
-| 2026-09-28 | Lockstep with a short timeout is the default sync mode. The observation is the end of tick N; the action applies from tick N+1. | This is the lowest possible latency, the same as Phillip's lockstep training, and the agent has about a frame of slack anyway. |
-| 2026-09-28 | Hooks piggyback on existing per-tick `src/pc` calls (`pc_net_sync`, `pc_slp_tick_end`), so nothing under `src/melee` or `src/sysdolphin` changes game logic. | Ground rule. |
-| 2026-09-28 | The only `src/melee` edit is the test-only `MELEE_DEBUG_VS_CHARS` knob, inside the existing `#ifdef TARGET_PC` block of `gmvsmode.c`. | You approved it. It gives reproducible Falcon-vs-Falcon-on-Battlefield checks without the CSS. |
-| 2026-09-28 | A second `src/melee` edit: in `mncharsel.c`, under `#ifdef TARGET_PC`, the agent port's door opening from closed to HMN places a random character from `MELEE_AGENT_CSS_CHARS` (a copy of `mnCharSel_8025FB50`'s placement, limited to those icons). | You approved it. The doors, icons, tokens and cursors are all `static` in that file, so `src/pc` cannot reach them. Without the variable, or on other doors, the character select is unchanged. The same file also lets any cursor pick up the agent door's HMN token, as for a CPU's (`pc_agent_css_door`): the agent never moves its own cursor in menus. |
-| 2026-09-28 | The container build seeds CMake FetchContent dependencies from git clones. | `github.com/<owner>/<repo>/archive/...` tarball URLs return 403 here, while release assets and git work. |
+| Decision | Why |
+|---|---|
+| Fork of 999sian/melee-pc with full history; all work on `claude/eager-planck-jptjp9` (the only branch, and the default). | Upstream syncs stay plain git. |
+| The AI is a separate Python process; the game is a socket server (AF_UNIX, or loopback TCP, the only form on Windows). | The agent can be checked frame by frame against the real Phillip, and any Python agent (slippi-ai, Gomihyu) uses the same socket. |
+| Hooks ride existing per-tick `src/pc` calls (`pc_net_sync`'s offline path, `pc_slp_tick_end`); nothing under `src/melee`/`src/sysdolphin` changes game logic. | Ground rule. |
+| Three approved `#ifdef TARGET_PC` edits in `src/melee`: the test-only `MELEE_DEBUG_VS_CHARS` knob (`gmvsmode.c`); in `mncharsel.c`, the agent's door opening as HMN with a random character from `MELEE_AGENT_CSS_CHARS`, and any cursor moving the agent's HMN token (`pc_agent_css_door`). | The doors and tokens are `static` there, out of `src/pc`'s reach. Unchanged without the bridge. |
+| 2017 Phillip runs as a numpy forward pass; TF 2.13 (Python 3.11 via `uv`) only exports and verifies weights. | Keeps TF out of the game loop. |
+| Lockstep with a 4 ms timeout by default: the state is the end of tick N, the pad applies from tick N+1. | Lowest latency, as Phillip trained; degrades to async after 30 misses. |
+| slippi-ai (the newer Phillip) reads the game through the Slippi event stream `slp.c` already writes, parsed by libmelee as from a console. | The same path the live Slippi bot uses. |
+| Rejected: modding doldecomp/melee (GameCube-only), replacing Melee's CPU AI (edits game logic), running Phillip in C (harder to verify). | |
+| Training Mode is the real TM-CE in Dolphin (`tmce.py`). A rebuilt "Training Lab" in `src/pc` was built and then removed (commit 9388e57) at the user's request. | TM-CE is PowerPC code patched into the disc; melee-pc can't run it. Neither TM-CE (license unstated) nor Dolphin is shipped. |
+| Gomi is not packaged into the Windows zip any further (her GitHub repo is private to the owner). | User's instruction. |
 
-## Open questions
+## 2017 Phillip port
 
-- **Flaky test run.** One `unittest discover` run in the container ended with `FAILED (errors=1)`. 21 later runs (15 sequential, 6 in parallel) all passed, and the error text was not captured. If it shows up for you, please keep the output.
-
-- **Timing.** How many frames did Phillip's asynchronous Dolphin pipe actually add at play time? Our default is +1 tick (N → N+1). `--frame-lag` exists to experiment.
-- **CSS.** Can P2 be set to HMN and given a character from P1's cursor, and does the coin survive the CPU → N/A → HMN toggle? This needs your machine.
-
-## Phillip port: verification results (container, 2026-09-28)
-
-`verify_model.py` against Phillip's own code under TF 2.13 (CPU, Python 3.11), 2400 synthetic frames per agent:
-
-| Agent | Network: max \|numpy − TF\| (300 random histories) | Pipeline: Phillip's `Agent.act` vs ours, same TF policy and seed | With the numpy policy |
-|---|---|---|---|
-| FalconFalconBF | 7.9e-5 | 2400/2400 frames identical | 2400/2400 |
-| delay0/FoxFD | 4.2e-5 | 2400/2400 | 2400/2400 |
-| delay0/FalcoFD | 2.1e-4 | 2400/2400 | 2400/2400 |
-| FoxFD1 | 3.1e-5 | 2400/2400 | 2400/2400 |
-| SheikFD2 | 1.0e-4 | 2400/2400 | 2400/2400 |
-| PeachFD1 | 1.0e-4 | 2400/2400 | 2400/2400 |
-| MarthFD0 | 2.4e-4 | 2400/2400 | 2400/2400 |
-| MarthFD1 | 7.9e-5 | 2400/2400 | 2400/2400 |
-| PeachFD | 3.3e-5 | 2400/2400 | 2400/2400 |
-| PeachFD2 | 1.8e-4 | 2400/2400 | 2400/2400 |
-| SheikFD | 9.3e-5 | 2400/2400 | 2400/2400 |
-| SheikFD1 | 8.3e-5 | 2400/2400 | 2400/2400 |
-
-Every agent the roster can pick is in this table.
-
-- **Network gaps are float32 noise.** TF's float32 result is as far from a float64 evaluation as numpy's is (the verifier prints both), and the gap only shows on extreme random inputs; the median is ~1e-39. Tolerance is 5e-4 on probabilities. A layer mix-up or broken file shows up at 1e-2 or more; the loader replays 16 reference cases from the export on every start.
-- **Pipeline** covers the delay queue, action chains, memory, banned rules and numpy's `choice`: the recorded pad-command text matches Phillip's `Pad.send_controller` output exactly.
-
-## Latency (container, 2.1 GHz Xeon vCPU, numpy 2.5, single-threaded BLAS)
-
-Per network step: observation → Agent.act → pad. Chain-only frames cost ~6 µs.
-
-| Agent | p50 | p99 | max |
-|---|---|---|---|
-| FalconFalconBF | 141 µs | 311 µs | 1.8 ms |
-| delay0/FoxFD | 292 µs | 701 µs | 3.1 ms |
-| SheikFD2 | 527 µs | 1.0 ms | 3.7 ms |
-
-The budget per tick is 16.7 ms, and the agent gets about one frame of slack anyway: the state goes out right after the tick's logic, and the game only waits for the input after rendering and pacing. With the default BLAS thread count, FalconFalconBF's p99 was 420 µs and its max 3.4 ms, so `agent.py` pins BLAS to one thread. `check_phase3.py` measures the real numbers on your machine, including tick-to-tick wall time.
-
-## Agents
-
-`list_agents.py --check` (TF oracle) lists the matchup each agent expects:
-
-| Agent | Char | Stage | act_every | Delay (steps, frames) | Memory | Actions | Trained vs | Restore |
-|---|---|---|---|---|---|---|---|---|
-| FalconFalconBF | falcon | battlefield | 2 | 0 | 0 | old (30) | Falcon (by name) | ok |
-| delay0/FoxFD | fox | final_destination | 2 | 0 | 1 | custom (35) | delay0 population | ok |
-| delay0/FalcoFD | falco | final_destination | 4 | 0 | 1 | custom (35) | delay0 population | ok |
-| FoxFD0, MarthFD0, PeachFD, SheikFD | as named | final_destination | 3 | 0 | 1 | diagonal (54) | delay0 | ok |
-| MarthFD1, PeachFD1, SheikFD1 | as named | final_destination | 3 | 1 (3f) | 2 | diagonal (54) | delay1 | delay pad (harmless) |
-| PeachFD2, SheikFD2 | as named | final_destination | 3 | 2 (6f) | 3 | diagonal (54) | delay2 | delay pad (harmless) |
-| FoxFD1 | fox | final_destination | 3 | 1 (3f) | 2 | diagonal (54) | delay1 | **MISMATCH** |
-| delay12/MarthFD | marth | final_destination | 3 | 4 (12f) | 1 | custom | delay12 | predictive model: not supported |
-| delay18/* | falco/fox/puff | mixed | 3 | 4-6 (12-18f) | 0 | custom | self | weights not in the repo |
-
-- **FoxFD1's params do not describe its checkpoint.** It was trained with a 64-wide action-state FC (`weight [383,64]` is in the checkpoint), but its params omit `action_space`. Phillip builds the net without the FC, leaves those weights unused and zero-pads the first actor layer from 840 to 2808 rows. So Phillip itself runs FoxFD1 with misaligned weights, and so do we. Fixing it would mean overriding its params (`action_space: 64`), which is a deviation from Phillip.
-- **delay12/MarthFD** (predictive model) does not build under Phillip's own code at HEAD (a shape error in its `Model.predict` loop), so there is no oracle to check a port against.
-
-## Roster: the agent follows P2's character
-
-`play.py` (without `--agent`) writes `weights/roster.json` from `roster.py`, and `agent.py --roster` picks the agent at each match start from the agent port's CKind and the stage. The pick happens on the first tick the fighter is in the state, inside the 120-frame warm-up.
-
-**Stage rule.** On Final Destination a character gets its FD agent; on any other stage it gets its Battlefield agent. A character with only one of the two uses it everywhere. Only Falcon (FalconFalconBF) and Falco (delay18/FalcoBF) have Battlefield agents. Falco's is in the Google Drive zip, not the repo, so until it's added Falco plays FalcoFD everywhere. `delay18/FalcoFD`'s params say battlefield, but the roster goes by its name and treats it as the FD agent.
-
-| P2's character | FD agent (default) | BF agent | `--reaction 1` | `--reaction 2` |
-|---|---|---|---|---|
-| Captain Falcon | (BF one) | FalconFalconBF | same | same |
-| Fox | delay0/FoxFD | (FD one) | same (FoxFD1 excluded) | same |
-| Falco | delay0/FalcoFD | delay18/FalcoBF if present | same | same |
-| Marth | MarthFD0 | (FD one) | MarthFD1 | MarthFD1 |
-| Peach | PeachFD | (FD one) | PeachFD1 | PeachFD2 |
-| Sheik | SheikFD | (FD one) | SheikFD1 | SheikFD2 |
-| Jigglypuff | delay18/PuffFD, only with its weights from Google Drive | (FD one) | same | same |
-| Ganondorf | Falcon's agent as a stand-in | | | |
-| Roy | Marth's agent as a stand-in | | | |
-| anyone else | none: the port is released for the match | | | |
-
-The delay18 agents (6 steps, 18 frames; Puff 4) are only picked when they are the only agent for that stage, since `--reaction` tops out at 2. They're unverified here: their weights aren't in the repo, so `verify_model.py` hasn't run on them. Run it after adding them.
-
-- **Stand-ins.** The agent keeps its own character for the banned-action rules. The agent port's `character` observation is set to the agent's own character, since the network was only trained on it; FalconFalconBF ignores the character input anyway.
-- **No agent.** The agent logs which characters are covered and releases the port for the match. P2 stands still, or a controller on P2 plays it.
-- **Export.** The first `play.py` run exports every roster agent in one TensorFlow process (`export_weights.py --agent A --agent B ...`, about 40 s in the container once TF is installed).
-- **Tests.** `tests/test_roster.py` covers the choices; `tests/test_agent_loop.py` plays Marth, Roy and Mario matches against a scripted game.
+- **Verified** (`verify_model.py` vs Phillip's own code under TF 2.13, 2400 frames per agent): all 12 roster agents match. Network max \|numpy−TF\| ≤ 2.4e-4 (float32 noise; tolerance 5e-4), and the full pipeline (delay queue, action chains, memory, banned actions, sampling) is 2400/2400 identical. The loader replays 16 reference cases on every start.
+- **Latency** per network step (2.1 GHz Xeon, 1 BLAS thread): FalconFalconBF p99 0.3 ms, FoxFD 0.7 ms, SheikFD2 1.0 ms, out of a 16.7 ms tick.
+- **Field mapping:** each field's GameCube offset is commented in `src/pc/agent_bridge.c` `capture_fighter`; Phillip's semantics are in `phillip_obs.py` and `phillip_model.py`. The original Phase 0 analysis is `tools/agent/PLAN.md` in git history (`git show 9892749:tools/agent/PLAN.md`).
+- **Agents** (`list_agents.py --check`): FalconFalconBF (Battlefield); delay0/FoxFD and FalcoFD; FoxFD0, MarthFD0, PeachFD, SheikFD; MarthFD1, PeachFD1, SheikFD1 (3 frames late); PeachFD2, SheikFD2 (6 frames late). FoxFD1's params don't describe its checkpoint (Phillip itself runs it misaligned), so the roster skips it. delay12/MarthFD doesn't build under Phillip at HEAD. delay18/* are only in Phillip's Google Drive zip and are unverified.
+- **Roster** (`roster.py`, `agent.py --roster`): picked per match from P2's character and the stage. FD agent on Final Destination, Battlefield agent elsewhere, the only one if there's one. Ganondorf and Roy borrow Falcon's and Marth's. `--reaction 1/2` prefers the late-reacting agents. Anyone else: the port is released and stands still.
 
 ## The newer Phillip (slippi-ai)
 
-**Why.** The bot on Slippi is `vladfi1/slippi-ai`: behaviour cloning on human Slippi replays, then self-play RL. The 2017 `vladfi1/phillip` agents are pure RL from 2017, mostly on Final Destination, and much weaker. The bridge reads every field from the offsets Phillip's memory watcher used, so the gap is the agents, not the bridge.
+- `slippi-requirements.txt` pins slippi-ai to commit 275c072 as a GitHub archive zip (no Git needed, which matters on Windows), with tf-nightly 2.21.0.dev20260203 and libmelee 0.47.3. Python 3.12, CPU, in `slippi-env/` (made by `play.ensure_slippi_env`).
+- Default model medium-v2 (downloaded by `play.ensure_slippi_model`; load it with `slippi_ai.saving.load_state_from_disk`). It's an RL model, 21 frames of delay, 12 characters. On a Ryzen 7 2700X: load 12 s, async step p99 ~10 ms. Play uses `--async-inference`.
+- Each frame's Slippi events go to the agent just before that tick's state (protocol v2); the match header is re-sent to a client that connects mid-match. A paused tick sends no frame.
+- Windows CI (`ai-melee-windows-check.yml`) installs slippi-env without Git, probes medium-v2 (p99 ~9-12 ms), runs the live loop tests and a few training steps.
 
-**How it sees the game.**
-- With the bridge on, `slp.c` serializes every VS match, file or not. Each frame's events go out as `AGENT_MSG_SLP_EVENTS` just before that tick's STATE (protocol v2).
-- Offline, with the stream on, a frame is emitted at the end of its own tick rather than when the next begins; the bytes are the same.
-- The match header (Event Payloads + Game Start) is kept and re-sent to a client that connects mid-match.
-- `slippi_agent.py` feeds each message to libmelee's own event parser, a `melee.Console` given bytes instead of a Dolphin stream. It then runs slippi-ai's `Parser` and `eval_lib.Agent` unchanged, which is the same path the live bot takes from a Slippi console.
-- slippi-ai's controller output snaps to raw pad values (sticks ±80, L 0-140). `FakeController` maps them straight to the pad.
-- The agent steps once per game frame. A paused tick sends no frame, so the pad holds.
-- `console_delay` is 0: frame N's state yields the pad for tick N+1, as libmelee with Dolphin does.
+## Gomihyu (`--gomi`)
 
-**Environment.** `slippi-requirements.txt` pins slippi-ai to commit `275c072`, plus the exact packages tested: tf-nightly 2.21.0.dev20260203, libmelee 0.47.3, wandb (imported when a TF model's config is upgraded). Python 3.12, CPU.
+- **Shape:** an LLM (Gemma 4 E4B via Ollama, `GOMI_MODEL`, `GOMI_OLLAMA_URL`) picks a plan about twice a second (`gomi_brain.py`). Move libraries (`mario_moves.py`; `fox_moves.py` subclasses it, and `falco_moves.py` subclasses Fox) turn the plan into one pad per frame. The game thread only reads her latest plan, so a slow Ollama never costs a late input. With `--gomi`, no roster, slippi-ai or Phillip checkout is needed.
+- **Learning:** per-character memory in `tools/agent/gomi/<char>/` (lessons, scoreboard, matches, drill, options, timing) and `rival.json`. The option bandit is `gomi_options.py`; reads of the human are `gomi_reads.py`; the post-match review and drills are `gomi_review.py`; input timing is `gomi_timing.py`; the starting knowledge is `gomi_handbook.py`. Discord: lines go to `~/.local/share/gomihyu/melee-outbox` for her bot (zurgace/gomihyu).
+- **Replays:** `gomi_replays.py` (teacher stats from every Falco in a replay folder) and `gomi_clips.py` (input clips). These didn't make her Falco play like the user, hence the network below.
+- **Her Falco network:** `gomi_train.py`, run in slippi-env:
+  - parses the replays and picks the owner (the netplay code in the most files) and their Falco games;
+  - holds one game in five out by hash;
+  - fine-tunes from medium-v2 (LR 3e-5, batch 16 × unroll 64, `LearnerConfig` defaults);
+  - evaluates on fixed held-out batches every 100 steps, with patience 5;
+  - writes `gomi/falco/model` and `model.json`.
 
-**Verified in the container.** The model itself can't be downloaded here (Dropbox is blocked by the container's proxy).
-- libmelee parses a synthetic stream written by melee-pc's own serializer (`tests/data/slp_stream.bin`, from `tests/gen_slp_stream.c`): stage, characters, positions, percent, facing, jumps, shield and controller sticks.
-- slippi-ai's `Parser` accepts the result.
-- The live loop against a fake game: a random 3x512 model (slippi-ai's `create_model.py`) plays P2 as Falco, one reply per tick.
-- The classic fallback runs in the same process.
-- Step time of that random model on a 4-vCPU Xeon:
+  Pause and resume: the launcher writes `gomi/falco/train/pause` (or sends SIGTERM); a checkpoint (`train/latest.pkl` with the optimizer, plus `progress.json`) is saved on pause and every 10 min, and the next run picks up there. Once trained, `slippi_agent.py --gomi-falco` plays it and Gomi only watches (no drills or lessons written).
 
-  | Mode | p50 | p99 |
-  |---|---|---|
-  | sync | 7.4 ms | 10.4 ms |
-  | async, paced at 60 Hz | 0.2 ms | 8.9 ms |
+## Training Mode (TM-CE)
 
-  So play uses `--async-inference`.
+`tmce.py` finds Dolphin (the saved one, `dolphin-emu`, the flatpak, Program Files, Slippi Launcher's), applies TM-CE's `.xdelta` to the user's disc with `xdelta3 -d -f -s` (a wrong disc fails xdelta's checksum), remembers both in `settings.json` (`tmce`), and runs `dolphin -b -e <iso>` until it closes. The launcher's **Training Mode** button runs it through the same process plumbing as Play.
 
-**medium-v2 on a real machine** (Ryzen 7 2700X, CPU, first `play.py` run):
-- An RL (self-play) model, 21 frames of delay.
-- 12 characters: Captain Falcon, Falco, Fox, Ice Climbers, Jigglypuff, Luigi, Marth, Peach, Pikachu, Samus, Sheik, Yoshi. Being self-play, it was trained against those same 12.
-- Load 12.2 s. Async step paced at 60 Hz: p50 0.19 ms, p99 10.4 ms, max 12.1 ms.
+## Checks to run on a real machine
 
-**Unverified:** a real match with the game's own stream (the first match logs `slippi: <Character>: slippi-ai plays P2`).
+The container has no disc and no GPU, so these are the user's. Each boots an isolated run and prints PASS/FAIL. They need `MELEE_DISC` or `--iso`.
 
-## Checks to run on your machine
-
-The container can build and unit-test everything but cannot run the game (no disc, no GPU). Each check boots its own isolated run (a throwaway XDG_DATA_HOME, so your memory card is never touched) and prints PASS/FAIL per assertion. Paste the output back. The commands are fish syntax, as in the README; they also work in bash. They expect `MELEE_DISC` to be set (`set -Ux MELEE_DISC ~/path/to/GALE01.iso`, README step 4); otherwise add `--iso /path/to/GALE01.iso` to each.
-
-```fish
-cmake -B build -G Ninja && ninja -C build
-git clone https://github.com/vladfi1/phillip ../phillip
-sudo pacman -S python-numpy uv
-
-# once: export the agent (TensorFlow 2.13 in a throwaway Python 3.11 via uv)
-uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
-    tools/agent/export_weights.py --phillip ../phillip --agent FalconFalconBF
-
-python3 tools/agent/check_phase1.py   # state export, cross-checked against the .slp recorder
+```sh
+python3 tools/agent/check_phase1.py   # state export vs the .slp recorder
 python3 tools/agent/check_phase2.py   # injection on P2 while P1 plays, hits, disconnect
-python3 tools/agent/check_phase3.py   # Phillip live: no late inputs, latency, kill -9, reconnect
+python3 tools/agent/check_phase3.py   # Phillip live: late inputs, latency, kill -9, reconnect
 python3 tools/agent/check_vanilla.py --upstream ../melee-pc-upstream/build/melee
-
-# optional: check the numpy port against Phillip on a real match's observations
-python3 tools/agent/play.py --record /tmp/match.bin   # records what the agent saw
-uv run --python 3.11 --with 'tensorflow-cpu==2.13.*' --with attrs \
-    tools/agent/verify_model.py --phillip ../phillip --record /tmp/match.bin --agent-port 2
 ```
 
-By hand:
+By hand: `play.py` (or the launcher) with `--quick`; `dump_state.py` (live state); `inject_script.py` (drives P2 with no AI).
 
-- **Play.** `python3 tools/agent/play.py` (or `ai-melee`; add `--quick` to skip the menus). This is the definition-of-done run: does Phillip play smoothly, and do the log's `agent: match over` / `agent: fight over` lines report 0 late inputs?
-- **Watch the state.** `python3 tools/agent/dump_state.py` prints it live, with the game started as `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock build/melee $MELEE_DISC`.
-- **Drive P2 without an AI.** `python3 tools/agent/inject_script.py` walks, hops, jabs and shields P2 while you play P1.
-- **CSS.** P2 should read as plugged in. Try P1's cursor on P2's door toggle: CPU → pick Falcon → toggle to HMN. Does the character stay selected?
+## Known gaps
 
-## Known gaps and divergences
-
-- **Full pad queue.** If the game falls five or more pad samples behind (a long hitch), the raw pad queue (qtype 0) merges the newest sample into the head the bridge just wrote, so the agent port can see one tick of its physical/neutral pad. Netplay pins qtype 2 for this; the bridge leaves the queue alone so it changes nothing for the human port.
-- **Blocking catch-up.** A lockstep wait blocks the game thread, and the pad alarm catches up afterwards (one extra tick next frame). The 4 ms timeout and degraded mode (after 30 consecutive misses) bound it; a numpy agent normally answers within the frame's render slack, so it never waits.
-- **Non-GCC platforms.** On Clang-built targets (Android, Apple, Windows ARM64), `co_attrs.max_jumps` would read byte-swapped from the `melee` target, the same latent issue slp.c has. Linux, the target here, builds everything with GCC.
-- **`hitstun_frames_left`** is the first 4 bytes of `Fighter::mv` read as a float, exactly as Phillip read `fp+0x2340`. It is exact in damage states. In other states it holds whatever the current state stored there, which on LP64 can differ from the GameCube (int endianness, re-laid-out views). Values are near zero in both cases.
-- **`character`** (used only by agents with `omit_char=false`) was the CSS door's `sel_icon` byte in Phillip. The door static is not reachable from `src/pc`, so we derive the icon from the CKind. Sheik maps to the Zelda icon, as she did on the CSS.
-- **Spawns.** Phillip's Dolphin ran the "Netplay Community Settings" Gecko code, which includes neutral spawns and other rule changes; we run vanilla. Only the starting positions differ.
-- **Boot crash with prewarm (upstream).** With melee-pc's background prewarm on, the game's own boot-time preload of `LbRb.dat` (1045 bytes) was once read as all zeros. The game stopped with `HSD_ArchiveParse: byte-order mismatch! Please check data format 0 415` (lbarchive.c:28).
-  - It happened on a SHA-1-verified GALE01 1.02 disc. Plain `./melee` on the same disc booted fine because the prewarm started later relative to the game's loads.
-  - `MELEE_PREWARM=0` avoids it, and `play.py` sets it unless `MELEE_PREWARM` is already set.
-  - Root cause not pinned down: every read goes through aurora's single DVD worker (per-file nod handles), so the collision is more likely in how the preload's completion interacts with the prewarm's synchronous reads. It's upstream melee-pc's, to be reported there.
-- **Results screen.** It waits for every plugged-in human port to press Start, and counts an unplugged port as ready (gmresultplayer.c). A second Start un-readies a port.
-  - On `GS_RESULTS` the bridge forces the agent port to read unplugged (`PAD_ERR_NO_CONTROLLER`) in every queued pad sample, so one Start from the player moves on.
-  - It forces this whatever is attached. aurora reports a port as connected when an SDL gamepad holds that player slot, when keyboard bindings exist for it, or when an adapter slot publishes a virtual pad there. The first fix only skipped the neutral fill-in, so it did nothing on a machine where P2 was already claimed that way.
-  - It logs `agent: results screen: P2 reads as unplugged ...` once per screen, naming what the port had.
-- **Supported agents.** `delay12/MarthFD` (the predictive model) is a stretch goal. `delay18/*` weights are not in the phillip repo; they are on Google Drive.
-- **Out of scope.** Netplay, record/replay and synctest: the bridge refuses to arm under them.
+- **Prewarm boot crash (upstream):** melee-pc's background prewarm once made `LbRb.dat` read as zeros ("HSD_ArchiveParse: byte-order mismatch"). `play.py` sets `MELEE_PREWARM=0`. It should be reported to melee-pc.
+- **Results screen:** the bridge forces the agent port to read unplugged on `GS_RESULTS` so one Start moves on.
+- **Full pad queue:** after a long hitch (5+ samples behind), the agent port can see one tick of a neutral pad.
+- **Clang targets** (Android, Apple, Windows ARM64): `max_jumps` would read byte-swapped (as in slp.c). Linux and Windows x86_64 build with GCC.
+- **Approximations:** `hitstun_frames_left` reads `Fighter::mv` as Phillip did; `character` is derived from the CKind; spawns are vanilla (Phillip's Dolphin used neutral spawns).
+- **Never under** netplay, record/replay or synctest: the bridge refuses to arm.
+- **One flaky `unittest discover` run** (errors=1, text not captured), never reproduced in 21 later runs.
 
 ## Windows
 
-- **Transport.** Windows' Python has no AF_UNIX, so the bridge also listens on loopback TCP: `MELEE_AGENT_SOCKET=tcp:127.0.0.1:<port>` or `tcp:<port>`, on every platform. It binds 127.0.0.1 only and refuses any other host, because whoever connects drives a port. `play.py` uses TCP on Windows, or with `--tcp`, and picks a free port. Framing, stale inputs, degraded mode and disconnects are unchanged. `TCP_NODELAY` is on at both ends. The address port uses `SO_EXCLUSIVEADDRUSE` on Windows and `SO_REUSEADDR` elsewhere.
-- **Tests.**
-  - `tools/test_agent_link.c` runs its whole suite twice, over AF_UNIX and over TCP, and checks that non-loopback and malformed addresses are refused.
-  - `tests/test_bridge_proto.py` runs the fake game over both transports.
-  - `agent_link.c`, `agent_bridge.c` and `fake_game.c` cross-compile with mingw-w64 (with the game's flags for the first two). Under Wine 9, the Windows `fake_game.exe` passes the TCP protocol tests against the Linux `bridge.py`. It also refuses a path address with a pointer to the TCP form.
-- **Package.** `.github/workflows/ai-melee-windows.yml` builds upstream's Windows zip (`tools/package_windows.sh`) and adds the agent (`package_windows_agent.sh`): `ai-melee/` with the Python tools, `Play AI-Melee.bat` and `README-AI-Melee.txt`. An `ai-melee-v*` tag publishes it as a Release. The full game couldn't be cross-built in the development container: sqlite.org and the freetype mirror are blocked there, so CI makes the first full build.
-- **Unverified.** Nobody has played it on real Windows yet, including the tkinter disc picker, uv's TensorFlow export on Windows (`tensorflow-cpu` 2.13.1 has a cp311 win_amd64 wheel) and Ctrl-C handling in the console.
+- `ai-melee-windows.yml` (workflow_dispatch with `release_tag`, or an `ai-melee-v*` tag) builds upstream's Windows zip and adds `ai-melee/` (`package_windows_agent.sh`): the Python tools, `AI-Melee.exe` (`windows/ai_melee_exe.c`, opens the launcher with `pyw.exe`, the windowless Python), `Play AI-Melee.bat` and `README-AI-Melee.txt`. Releases v0.3 to v0.9 are published.
+- Quit on Windows: `taskkill` without `/F` first (a graceful close), then forced after a grace period (`launcher.stop_command`, `quit_grace_s`).
 
-## Developer reference
+## play.py extras and environment variables
 
-Moved here from the README, which now holds only the player's install guide.
-Paths are relative to the repository root; `play.py --help` lists every
-option.
+`play.py --help` lists every option: `--brain`, `--reaction`, `--agent`, `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag`, `--quick`, `--record`, `--tcp`, `--gomi`, `--box-controller`, `--p2-pick`, `--random-stages`.
 
-### play.py options beyond the launcher
-
-- **More agents.** The `delay18` agents are not in Phillip's repo; they're in the "full set of trained agents" zip linked from [Phillip's README](https://github.com/vladfi1/phillip#readme) (Google Drive). Phillip's author calls `delay18/FalcoBF` the best human-like agent. Put each one's files (`params`, `snapshot*`) in `../phillip/agents/delay18/<name>/`, and the next `ai-melee` converts and uses them. They react 18 frames late (12 for Puff), by design.
-- **Reaction.** `--reaction 1` or `--reaction 2` prefers agents trained to react 3 or 6 frames late, which play more like a person. Only Marth, Peach and Sheik have them; the others keep their own agent.
-- **One agent for everyone.** `--agent <name>` plays that one agent whatever P2 picks, as before. `tools/agent/list_agents.py` lists every agent's character, stage and delay. The agent warns when the match you set up differs from its training matchup.
-- **Other options.** `--port`, `--delay`, `--epsilon`, `--sync`, `--timeout-ms`, `--frame-lag` and `--record` are described in `play.py --help` (`--delay`, `--frame-lag` and `--record` apply to the 2017 agents).
-- **Running the pieces by hand.** fish accepts one-off variables in front of a command, as bash does:
-  - `MELEE_AGENT_SOCKET=/tmp/melee-agent.sock MELEE_PREWARM=0 build/melee $MELEE_DISC` starts the game with the bridge on. `MELEE_PREWARM=0`, which `play.py` sets for you, avoids a boot-time crash in melee-pc's background disc prewarm ("HSD_ArchiveParse: byte-order mismatch"; see NOTES).
-  - `python3 tools/agent/agent.py --weights tools/agent/weights/FalconFalconBF.npz` then plays P2, and `python3 tools/agent/dump_state.py` prints what the bridge exports. Run only one of the two: the bridge serves one client at a time.
-- **Performance.**
-  - slippi-ai runs on the CPU on a worker thread. Its reaction delay hides the compute, so a reply normally takes well under a millisecond. The first-run timing, kept in `tools/agent/weights/slippi/*.probe.txt`, shows your machine's numbers.
-  - A 2017 agent's network step takes about 0.15 ms (p99 0.3 ms) of the 16.7 ms tick.
-  - The state leaves the game right after the tick's logic, and the input is only needed after rendering, so a healthy agent never makes the game wait.
-  - A slow or dead agent costs at most the timeout per tick. After 30 misses in a row the game stops waiting, and a killed agent leaves P2 on a neutral pad.
-- **More detail.** [tools/agent/NOTES.md](tools/agent/NOTES.md) has the field mapping, verification results, known gaps and the checks to run (`check_phase1.py`, `check_phase2.py`, `check_phase3.py`, `check_vanilla.py`). `inject_script.py` drives the agent port without any AI.
-
-### Environment variables the game reads for AI-Melee
-
-The bridge and its helpers are off unless `MELEE_AGENT_SOCKET` is set.
-melee-pc's other variables are in its own README.
-
-| Variable | Meaning |
+| Variable (read by the game) | Meaning |
 |---|---|
-| `MELEE_LOG_FILE=<path>` | Write the log to a file (default `melee-pc.log` beside `melee.exe` on Windows; empty disables). |
-| `MELEE_PREWARM=0` | Skip the background asset pre-warm after boot. |
-| `MELEE_AGENT_SOCKET=<path>` or `tcp:127.0.0.1:<port>` | Agent bridge: listen on this AF_UNIX socket (or TCP port on the loopback interface only; Windows accepts only the TCP form) so an external agent (e.g. Phillip) can watch the game and drive one port. Off by default; unset, nothing changes. |
+| `MELEE_AGENT_SOCKET=<path>` or `tcp:127.0.0.1:<port>` | Turns the bridge on (off when unset). |
 | `MELEE_AGENT_PORT=<1-4>` | The port the agent drives (default 2). |
-| `MELEE_AGENT_SYNC=lockstep\|async` | `lockstep` (default) waits up to the timeout for each tick's input; `async` never waits. |
-| `MELEE_AGENT_TIMEOUT_MS=<ms>` | Lockstep wait per tick (default 4). |
-| `MELEE_AGENT_RANDOM_STAGES=legal` | With the agent bridge on: Random on the stage select picks only Battlefield, Final Destination, Pokémon Stadium, Yoshi's Story, Dream Land N64 or Fountain of Dreams. It is set while the stage select is open, and your own Random Stage Switch list is put back after. `play.py` sets it unless run with `--random-stages all`. |
-| `MELEE_AGENT_CSS_CHARS=<ckinds>` | With the agent bridge on: comma-separated character kinds (CKind, e.g. `2,20` for Fox and Falco). Opening the agent port's door from closed to HMN on the character select places its token on a random unlocked one of them. `play.py` sets it to the characters an AI will play, Sheik aside, unless run with `--p2-pick off`. |
-| `MELEE_BOX_CONTROLLER=1` | Read every controller's sticks as Dolphin does: full axis = 127 GameCube units, rounded down, no deadzone (`extern/aurora`, `box_axis`). Box controllers (HayBox, B0XX, Frame1) send the values a Dolphin profile expects (HayBox: 128 +- 80 of 255 for a full press); melee-pc's +-80 scale for analog pads read that as 50, short of the 64 a dash needs. DInput boxes ("Arduino Leonardo", "HayBox", "B0XX", "Frame1" in the name) get it automatically; `0`/`off` turns it off for all. `play.py --box-controller on` sets it and remembers it. Reported by Yomiki (HayBox, Windows 10). |
-
-## Gomihyu plays Mario
-
-Gomihyu (github.com/zurgace/gomihyu) is the owner's Discord persona: Gemma
-4 E4B through Ollama. Asked to put her in the game as Mario, "improving from
-each game", the options were weighed as follows:
-
-- **She can't press the buttons.** An E4B reply takes roughly 0.3-1 s on an
-  RTX 2070, and Melee wants an input every 16.7 ms.
-- **A trained Mario network** (slippi-ai imitation on public Mario replays,
-  then RL, then fine-tuning after each game) would play far better. It
-  needs a replay dataset, GPU hours to days, and it would still barely move
-  per game. It remains the upgrade path.
-- **Chosen: she calls the plays.**
-  - `gomi_brain.py` runs a planner thread that sends her the situation
-    about twice a second (`GOMI_PLAN_EVERY`). She answers in JSON
-    (Ollama `format` schema, `think: false`) with one of six plans and an
-    optional taunt.
-  - `mario_moves.py` turns the current plan into one pad per frame from
-    the bridge's fighter state.
-  - Recovery (double jump, then Up-B toward the ledge), teching, getups,
-    ledge options, grab mashing and survival DI never wait for her.
-  - The game thread only reads her latest plan, so a slow or dead Ollama
-    never costs a late input. The loop test checks this: every fight tick
-    is answered.
-- **How she learns.**
-  - Per frame, damage dealt and taken, KOs and deaths are attributed to the
-    plan in effect.
-  - `scoreboard.json` sums them across matches, per opponent character.
-    The score is net percent per minute, with a KO counted as 40, shrunk
-    toward 0 while a plan has little time.
-  - After each match she gets the summary and the scoreboard, and rewrites
-    `lessons.md` (at most 8).
-  - The next match's prompt carries both.
-  - Without Ollama, a rule-based chooser weighted by the scoreboard plays.
-    So the numbers improve her even with no model.
-- **Wiring.**
-  - `agent.Runner` (roster mode) treats Mario as covered when `--gomi` is
-    on.
-  - `slippi_agent` gives Mario to Gomi before slippi-ai.
-  - `play.py --gomi` checks Ollama once and adds Mario to
-    `MELEE_AGENT_CSS_CHARS`.
-  - The launcher has a checkbox.
-- **Not verified in a real match yet.** The container has no game or GPU.
-  Unit tests cover the move library on synthetic states, the brain against a
-  fake Ollama, and both runners' loops against the fake games. Timings
-  (hitlag, jumpsquat, move lengths, ledge behaviour) are expected to need a
-  tuning round from real play.
-
-### Mario and Fox, and Gomi taking over (2026-09-29)
-
-The user asked for Fox, or both if doable; both it is.
-
-- **`fox_moves.py` subclasses `mario_moves.Mario`**: situation reading, teching, DI, getups, ledge
-  options, mashing and edge safety are shared.
-  - Fox has his own plans (`lasers` for zoning, the shine in approach, pressure, out of shield and at
-    the ledge, down-air).
-  - His recovery: Illusion when level with the ledge and within 55 units, else Firefox with the stick
-    aimed at the ledge for the whole 45-frame charge.
-- **Characters in the brain**: `gomi_brain.CHARACTERS` maps CKind to move library, and each module
-  gives `NAME`, `CKIND`, `ZONE`, `PLANS` and `Player`. Her plan schema, prompt and fallback follow
-  the character.
-- **Memory is per character** (`gomi/mario/`, `gomi/fox/`); the Mario-only files from before move
-  into `mario/` on first start. The Discord outbox is shared, and each file names the character.
-- **"If gomi is marked for use, disable slippi-ai/phillip and have gomi take over"**:
-  - `play.py --gomi` now runs `agent.py --gomi` with no roster and no model. It doesn't load
-    TensorFlow, slippi-env or Phillip, and doesn't even need the Phillip checkout.
-  - P2's door opens with Mario or Fox, and anyone else stands still with a log line saying so.
-  - The launcher's checkbox sits in the AI box and greys out the other AI choices.
+| `MELEE_AGENT_SYNC=lockstep\|async`, `MELEE_AGENT_TIMEOUT_MS` | Lockstep wait per tick (default 4 ms). |
+| `MELEE_AGENT_RANDOM_STAGES=legal` | Random stage picks only the six tournament stages. |
+| `MELEE_AGENT_CSS_CHARS=<ckinds>` | The agent's door opens as HMN on a random one of these. |
+| `MELEE_BOX_CONTROLLER=1` | Read sticks as Dolphin does (box controllers). |
+| `MELEE_PREWARM=0`, `MELEE_LOG_FILE`, `MELEE_DEBUG_VS_CHARS` | No prewarm; the log file; the debug VS boot (tests). |

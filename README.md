@@ -35,7 +35,7 @@ AI-Melee's own part:
 - **The Python side.** It runs both Phillips.
 - **A few character-select conveniences:** P2 opens with a random AI character, and you can move P2's token.
 - **Tournament-only random stages.**
-- **The launcher.**
+- **The launcher**, with **Gomihyu** (an optional language-model AI for P2) and a **Training Mode** button that opens TM-CE in Dolphin.
 
 ## Install on Linux (CachyOS)
 
@@ -166,64 +166,31 @@ The launcher remembers your choices. While you play, it shows **AI ready**, and 
 
 ## Training Mode (TM-CE)
 
-**Training Mode** in the launcher opens [TrainingMode-CommunityEdition](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition) (TM-CE): Melee's 1P Event Match replaced by training events, starting with the Training Lab (savestates, recording and playback, CPU options, frame data) plus ledgedash, L-cancel, edgeguard and more.
+**Training Mode** in the launcher opens [TrainingMode-CommunityEdition](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition) (TM-CE): the 1P Event Match replaced by training events (the Training Lab with savestates, recording and CPU options; ledgedash, L-cancel, edgeguard and more). TM-CE patches the GameCube disc, so it runs in **Dolphin**, not in AI-Melee's game, and the AIs don't play in it. AI-Melee includes neither:
+- **Dolphin:** install [Dolphin](https://dolphin-emu.org) or [Slippi Launcher](https://slippi.gg). The launcher finds `dolphin-emu`, its flatpak, Dolphin in Program Files or Slippi Launcher's Dolphin, else asks you to pick it.
+- **TM-CE:** the first press offers TM-CE's download page. Pick the downloaded patch (`.xdelta`) and AI-Melee applies it to your disc (needs `xdelta3`: `sudo pacman -S xdelta3`), saving `<patch name>.iso` beside the patch. On Windows, patch as TM-CE's release says and pick the patched `.iso`. The disc must be a plain `.iso` (convert a `.rvz` in Dolphin).
 
-TM-CE is a patch to the GameCube disc, so it runs in **Dolphin**, not in AI-Melee's own game, and the AIs don't play in it. AI-Melee includes neither TM-CE nor Dolphin; you get them yourself:
-- **Dolphin:** [Dolphin](https://dolphin-emu.org) or [Slippi Launcher](https://slippi.gg)'s Dolphin. The launcher finds `dolphin-emu`, Dolphin's flatpak, Dolphin in Program Files, or Slippi Launcher's Dolphin; otherwise it asks you to pick the program.
-- **TM-CE:** the first time, the launcher offers TM-CE's download page. Pick the patch you downloaded (`.xdelta`), and AI-Melee applies it to your disc (the same NTSC-U 1.02 disc it plays) and puts `<patch name>.iso` next to the patch. Applying it needs `xdelta3` (Arch/CachyOS: `sudo pacman -S xdelta3`); on Windows, patch your disc as TM-CE's release says and pick the patched `.iso` instead. The disc must be a plain `.iso`: convert a `.rvz` in Dolphin first.
-
-Both are remembered. After that, **Training Mode** starts TM-CE straight away; close Dolphin to come back to the launcher. **Change...** next to "Training Mode (TM-CE)" picks another TM-CE version or Dolphin. From a terminal: `python3 tools/agent/tmce.py` (`--patch`, `--iso`, `--dolphin`; `--help` for more).
+Both are remembered; later presses start TM-CE straight away, and closing Dolphin brings the launcher back. **Change...** next to "Training Mode (TM-CE)" picks another version or Dolphin. Terminal: `python3 tools/agent/tmce.py --help`.
 
 ## Gomihyu takes over P2 (optional)
 
-[Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she is P2's AI, as **Mario**, **Fox** or **Falco**. slippi-ai and the 2017 agents stay off (they aren't even loaded), and P2's door opens with one of them.
-- **Before her first match** she already knows the basics: a handbook (`tools/agent/gomi_handbook.py`) of what every Mario, Fox or Falco player learns first, and a note on each opponent. Her prompt always shows it, and it gives her rule-based fallback a starting guess for each plan. Her own numbers replace that guess as she plays.
-- **During a match:** twice a second she picks her character's game plan: approach, zoning (Mario's fireballs, Fox's lasers), spacing, pressure, defending, edgeguarding, or playing from the platforms. A move library plays that plan frame by frame; she's far too slow to press the buttons herself. Within the plan she **learns by trial and error**: each time she's free to act, she picks one option from the plan's menu (grab, down-tilt, a short-hop or full-hop aerial, a fireball or laser, backing off, shielding, waiting for your whiff, Fox's shine...). She scores it by the damage traded in the next second and a half, separately for each situation (distance, what you're doing, whether she's by the ledge) and each opponent character. Options she hasn't tried yet come first, so she experiments; then she leans on what pays and still tries the rest now and then (`options.json`). She also **learns from you**: she watches which of those options you pick in each situation and what they trade for you, and tries what works for you first. Her own results take over as she plays. As Fox and Falco the shine is her bread and butter: up close, out of a crouch as you come in, after a short-hop aerial lands, and in the air. **She times her inputs:** after each press she checks whether the game took it (her action changed) or ate it, and learns which states eat her presses (landing lag, shield stun...). She waits those out and presses on the first frame she can, and once a move is over she acts again right away. Her review says how many inputs were eaten and where (`timing.json`). Recovering (Mario's Up-B; Fox's Illusion or a Firefox aimed at the ledge), teching and getting up happen without her.
-- **Her Falco can play like you.** After picking your replay folder, press **Train on my replays** in the launcher. It fine-tunes the newer Phillip's network (slippi-ai's own recipe, behavior cloning) on **your** Falco games: the player in the most of your replays is you. It learns to predict your next controller input from the game, the way you play it. It runs on your computer's CPU, in the background, and your replays never leave it; a few months of netplay is an overnight run. **Pause training** saves exactly where it is, and **Resume training** picks up there, whenever you like, even after closing AI-Melee or restarting; pressing Play pauses it too. While it runs, a progress bar and a line with the step, the time left and a running clock show it's going. Run it again as new replays come in. One game in five is held out to check it on: the launcher shows how much closer it got to your inputs on games it never saw. Once trained, **that network plays her Falco**, every frame, and Gomi watches: she still reads your habits, reviews the match and posts about it, but her own Falco lessons and drills are left alone. Her Mario and Fox are unchanged. It starts from medium-v2, slippi-ai's trained network (the one the newer Phillip plays with; the launcher downloads it), or from any slippi-ai network you save as `tools/agent/gomi/falco/base-model`. From a terminal: `tools/agent/slippi-env/bin/python tools/agent/gomi_train.py --replays <folder or .zip>`. The network is `tools/agent/gomi/falco/model` (with `model.json`); delete it to give her Falco back to her.
-- **Her Falco learns from Slippi replays.** Press **Teach Gomi from replays...** in the launcher and pick your Slippi replay folder (Slippi Launcher keeps them in `Documents/Slippi` on Windows, `~/Slippi` on Linux, one folder per month). She imitates **every Falco player** in them, you and your friends: the tech they use (L-cancels, SHFFLs, wavedashes, shield drops...) and which options they pick in each situation, with what those traded; what worked for them is what she tries first. She also plays **clips of your own inputs**: each time a Falco in your replays was free to act, the next moment of their controller (a dash-dance step, a wavedash, a short-hop laser or down-air...) is kept with the situation it started in, and in a similar spot she plays it back frame for frame, turned toward her opponent. The replays are your games, so the player in the most of them (you) counts most. The folder is read again each time she starts, and only new replays count, so she keeps learning from your netplay. From a terminal: `python3 tools/agent/gomi_replays.py <folder or .zip>`. What she learned goes in `tools/agent/gomi/falco/teacher.json` and `clips.json`; your replays stay where they are.
-- **She reads you** (human players only), and remembers across matches and all her characters:
-  - **She copies your tech.** She starts without wavedashing, wavelanding, L-cancelling, SHFFLs, shield drops and multishines (as Fox). The second time she sees you do one, she starts doing it too, mid-match, and says so in Discord. The more you do it, the more she does.
-  - **She punishes your habits:** which way you tech, how you get up, your favourite ledge option, and whether you shield or jump when she comes in. After a few sightings she waits where your roll ends, traps your ledge option, and grabs you if you shield a lot. She reacts to tech rolls and getups she sees, too.
-- **After each match:** she reads a review of it: what hit her and what she was doing at the time, what she hit you with, who won each neutral exchange and how much it was worth, and how each stock was lost. Then she rewrites her lessons, and **picks one thing to practise next match**:
+[Gomihyu](https://github.com/zurgace/gomihyu) is a small language model with an Archdemon persona (Gemma 4 E4B, run by [Ollama](https://ollama.com)). With her on, she plays P2 as **Mario**, **Fox** or **Falco**, and slippi-ai and the 2017 agents aren't loaded.
 
-  | drill | what changes next match | judged by |
-  |---|---|---|
-  | recovery | double jump and up-B sooner and higher | stocks lost offstage |
-  | neutral | stays further out, waits for your whiff | share of openings won |
-  | punish | jumps after you with up-airs when a hit sends you up | damage per opening |
-  | defense | shields your attacks up close, grabs out of shield | damage taken per minute |
-  | edgeguard | goes to the ledge whenever you're offstage | edgeguard KOs |
-  | a copied technique | uses it nearly every chance she gets | times she used it |
+- **She calls the plays.** Twice a second she picks a game plan (approach, zoning, spacing, pressure, defending, edgeguarding, platforms); a move library plays it frame by frame, and recovery, teching and getups happen without her. She starts from a handbook of each character's basics (`gomi_handbook.py`).
+- **She learns by trial and error.** Within a plan she tries options (grab, tilts, aerials, lasers, shine, waiting...), scores each by the damage traded per situation and opponent, and leans on what pays (`options.json`). She learns which states eat her inputs and presses on the first frame she can (`timing.json`).
+- **She reads you** (humans only): she copies your tech (wavedash, L-cancel, SHFFL, shield drop, multishine) the second time she sees it, and punishes your habits (tech direction, getups, ledge options, shielding).
+- **After each match** she reads a review, rewrites her lessons and picks one drill for the next match (recovery, neutral, punish, defense, edgeguard, or a copied technique), then checks whether its number improved. Without Ollama, her rules pick.
+- **Her Falco learns from your Slippi replays.** **Teach Gomi from replays...** imitates every Falco player in your replay folder (their tech, option choices and short input clips), rereading new replays each time she starts (`gomi_replays.py`).
+- **Her Falco can play like you.** **Train on my replays** fine-tunes slippi-ai's medium-v2 network on your own Falco games, on your CPU, in the background (an overnight run for a few months of netplay). **Pause training** / **Resume training** pick up exactly where it stopped, even after a restart; Play pauses it too. One game in five is held out, and the launcher shows how much closer it got to your inputs. Once trained, that network plays her Falco and Gomi watches, reviews and posts. Terminal: `tools/agent/slippi-env/bin/python tools/agent/gomi_train.py --replays <folder or .zip>`. Delete `tools/agent/gomi/falco/model` to give her Falco back to her.
 
-  Next match she plays with that drill on. Afterwards she compares its number with the match before and says whether it paid off. Her Discord post says what she'll work on next. Without Ollama, her rules pick the drill whose number looks worst.
-- **Across matches:** every plan's results are tallied per opponent, and she sees that scoreboard too. So she changes her game from match to match, but don't expect a pro: she stays a quirky, beatable one.
+**Setting up** (she needs about 3.5 GB of graphics memory next to the game):
+1. Install Ollama and her model: `curl -fsSL https://ollama.com/install.sh | sh`, then `ollama pull gemma4:e4b`.
+2. In the launcher, tick **Gomihyu takes over P2** and press **Play** (terminal: `play.py --gomi`).
+3. Pick Mario, Fox or Falco for P2 (the door opens with one of them). The launcher shows her taunts, the result and her line after each match.
 
-**Setting up** (Linux; she needs about 3.5 GB of graphics memory next to the game):
-1. Install Ollama and her model:
+**Her memory** is `tools/agent/gomi/`, one folder per character (`lessons.md`, `scoreboard.json`, `matches.jsonl`, `drill.json`, `options.json`, `timing.json`), plus `rival.json` for what she knows about you. Delete the folder to start her over, or only `rival.json` to make her forget you. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or server; `GOMI_NUM_CTX` (default 8192) must equal her Discord bot's `OLLAMA_NUM_CTX`, or Ollama reloads the model each time they take turns.
 
-   ```sh
-   curl -fsSL https://ollama.com/install.sh | sh
-   ollama pull gemma4:e4b
-   ```
-
-2. In the launcher, tick **Gomihyu takes over P2** and press **Play**. From a terminal, use `play.py --gomi` instead.
-3. Pick Mario, Fox or Falco for P2 (the door opens with one of them). Anyone else stands still while she's on. The launcher shows her taunts, the result and her line after each match. **Show log** shows each plan she picks.
-
-If Ollama isn't running, she still plays, on her rule-based fallback. That fallback also learns from the scoreboard.
-
-**Her memory** lives in `tools/agent/gomi/`, one folder per character (`mario/`, `fox/`, `falco/`), so each character's lessons are its own:
-- `lessons.md` has her lessons;
-- `scoreboard.json` has every plan's results;
-- `matches.jsonl` has one line per match, with its review;
-- `drill.json` has what she practises next match, and the number to beat.
-- `options.json` has what each option has traded, per situation and opponent.
-- `timing.json` has which action states ate her presses.
-
-`tools/agent/gomi/rival.json` holds what she has noticed about you: your techniques and habits.
-
-Delete `tools/agent/gomi/` to start her over; delete only `rival.json` to make her forget you. `GOMI_MODEL` and `GOMI_OLLAMA_URL` point her at another model or Ollama server. `GOMI_NUM_CTX` (default 8192) must equal her Discord bot's `OLLAMA_NUM_CTX`: when the two differ, Ollama reloads the model every time they take turns.
-
-**Posting to Discord.** Her [Discord bot](https://github.com/zurgace/gomihyu) stays quiet while you play and posts **once per session**, as @Gomihyu, in her own words: how the matches went, her best taunts, whether her practice paid off and what she'll work on next. She posts when you close the game (the launcher gives her a moment to finish her thoughts first) or when you say **"gg"** in Discord. If the game was force-quit, she posts after 20 minutes without a new match. Both programs find each other on their own: AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, where her bot looks. To pick the channel, say **"gomi post melee here"** in it (as the bot's owner). If her posts pile up unposted, the launcher says so. See her README, "Melee results".
+**Discord.** Her [bot](https://github.com/zurgace/gomihyu) posts once per session, in her own words: when you close the game, when you say **"gg"** in Discord, or 20 minutes after the last match. AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`; say **"gomi post melee here"** (as the bot's owner) to pick the channel. The launcher warns if posts pile up.
 
 ## Troubleshooting
 
@@ -242,35 +209,20 @@ Delete `tools/agent/gomi/` to start her over; delete only `rival.json` to make h
 - **The launcher doesn't open (Linux):** install Tk with `sudo pacman -S tk`.
 - **The game doesn't start, or shows a black window:** update your graphics driver.
   - On Windows, double-click `game\RUN-AND-LOG.bat` and read `game\melee-pc.log`.
+  - melee-pc's [FAQ](https://999sian.github.io/melee-pc/) covers first-run problems.
 - **AI-Melee.exe says it needs Python:** install Python 3.12 as in step 1, with **Add python.exe to PATH** ticked.
 - **Updating by extracting over an old folder:** the old game files are left at the top of the folder, including an old `melee.exe` that starts the game without the AI. The launcher offers to remove them; say yes.
-  - melee-pc's [FAQ](https://999sian.github.io/melee-pc/) covers first-run problems.
 - **The launcher doesn't open (Windows):** run the python.org installer again, choose **Modify**, and tick **tcl/tk and IDLE**. Or use `Play AI-Melee.bat`.
 - **Anything else:** the full log is behind **Show log** in the launcher (also saved in `ai-melee.log`), or in the console window with `Play AI-Melee.bat`.
 
 ## For the maintainer: publishing the Windows download
 
-GitHub Actions and Releases are free for a public repository, so GitHub can build the Windows zip and publish it for you.
+1. On GitHub, open **Actions** → **AI-Melee Windows release** → **Run workflow**, and enter a `release_tag` one past the newest on the Releases page (e.g. `ai-melee-v0.10`). Pushing an `ai-melee-v...` tag does the same.
+2. About 12 minutes later the release appears with `AI-Melee-Windows-x86_64.zip` and the text of `tools/agent/RELEASE_NOTES.md`. Re-running with the same tag replaces the zip. If you share the zip on Google Drive too, upload the new one.
 
-**On GitHub (recommended).**
-1. Open the repository's **Actions** tab and choose **AI-Melee Windows release**.
-2. Click **Run workflow**, enter a `release_tag` such as `ai-melee-v0.3`, and click **Run workflow** again. Pushing a tag named `ai-melee-v...` does the same.
+Fallback on your own PC (builds the same zip in an Ubuntu container; needs podman): `tools/agent/build_windows_zip.sh` writes `dist/AI-Melee-Windows-x86_64.zip`, which you attach to a new release by hand. melee-pc's own Build workflow only runs when started by hand.
 
-After about 12 minutes the release appears on the Releases page, with `AI-Melee-Windows-x86_64.zip` and the text from `tools/agent/RELEASE_NOTES.md`. Running it again with the same tag replaces the zip. If you also share the zip on Google Drive, upload the new one there and keep the link in the Windows steps above current.
-
-**On your own PC (fallback).** This builds the same zip inside an Ubuntu container, so the only thing it installs on your system is podman:
-
-```sh
-sudo pacman -S --needed podman
-cd ~/src/ai-melee && git pull
-tools/agent/build_windows_zip.sh
-```
-
-The result is `dist/AI-Melee-Windows-x86_64.zip`. To publish it, go to **Releases** → **Draft a new release**, create a tag, attach the zip, and click **Publish release**.
-
-melee-pc's own Build workflow (every platform, including signing steps this fork has no secrets for) only runs when started by hand from the Actions tab.
-
-Developer notes (the bridge, every `play.py` option, environment variables, verification) are in [tools/agent/NOTES.md](tools/agent/NOTES.md). melee-pc's own documentation is in its [README](https://github.com/999sian/melee-pc#readme) and in [docs/](docs/).
+Developer notes: [CLAUDE.md](CLAUDE.md) (how the repo is laid out, the rules, what's next) and [tools/agent/NOTES.md](tools/agent/NOTES.md) (the bridge, `play.py` options, environment variables, verification, known gaps). melee-pc's own documentation is in its [README](https://github.com/999sian/melee-pc#readme) and [docs/](docs/).
 
 ## License
 
