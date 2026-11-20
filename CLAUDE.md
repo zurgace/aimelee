@@ -66,18 +66,18 @@ ruff check --select F,E9 --exclude slippi-env,weights,gomi tools/agent
   slippi-env without Git, the medium-v2 probe, the live loops, a few training steps, then all the
   agent tests.
 - `ai-melee-windows.yml` ("AI-Melee Windows release"): dispatch with `release_tag` (e.g.
-  `ai-melee-v0.10`) to build and publish the Windows zip. The release text is
-  `tools/agent/RELEASE_NOTES.md`. v0.3 to v0.9 are published.
+  `ai-melee-v0.11`) to build and publish the Windows zip. The release text is
+  `tools/agent/RELEASE_NOTES.md`. v0.3 to v0.10 are published.
 
-## Where we left off (2026-10-04)
+## Where we left off (2026-11-20)
 
-- **Last work:** the Training Lab rebuilt in `src/pc` was removed (9388e57); Training Mode now
-  launches the real TM-CE in Dolphin (`tmce.py` and the launcher button).
+- **Last work:** the default branch is now `main`. slippi-ai deleted medium-v2 from Dropbox, so
+  `play.py` downloads it from this repo's `models` release, pinned by sha256 (55e2d0f). v0.10
+  ships that fix, plus Training Mode (TM-CE in Dolphin), the training progress bar and
+  pause/resume.
 - **Open items for the owner:**
   - **TM-CE:** confirm that its release is an `.xdelta` and that `dolphin -b -e` boots the patched
-    ISO (plain and Slippi Dolphin). If not, plan again.
-  - **Windows release:** none since v0.9. The training progress bar, pause/resume and Training Mode
-    ship in the next one.
+    ISO (plain and Slippi Dolphin); v0.10 shipped before this was checked. If not, plan again.
   - **Gomi's Falco network:** the owner's ~8 h training run. Does it play like them? The move
     libraries' timings still want tuning from real play.
   - **Older:**

@@ -76,7 +76,7 @@ By hand: `play.py` (or the launcher) with `--quick`; `dump_state.py` (live state
 
 ## Windows
 
-- `ai-melee-windows.yml` (workflow_dispatch with `release_tag`, or an `ai-melee-v*` tag) builds upstream's Windows zip and adds `ai-melee/` (`package_windows_agent.sh`): the Python tools, `AI-Melee.exe` (`windows/ai_melee_exe.c`, opens the launcher with `pyw.exe`, the windowless Python), `Play AI-Melee.bat` and `README-AI-Melee.txt`. Releases v0.3 to v0.9 are published.
+- `ai-melee-windows.yml` (workflow_dispatch with `release_tag`, or an `ai-melee-v*` tag) builds upstream's Windows zip and adds `ai-melee/` (`package_windows_agent.sh`): the Python tools, `AI-Melee.exe` (`windows/ai_melee_exe.c`, opens the launcher with `pyw.exe`, the windowless Python), `Play AI-Melee.bat` and `README-AI-Melee.txt`. Releases v0.3 to v0.10 are published.
 - Quit on Windows: `taskkill` without `/F` first (a graceful close), then forced after a grace period (`launcher.stop_command`, `quit_grace_s`).
 
 ## play.py extras and environment variables

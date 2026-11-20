@@ -217,7 +217,7 @@ Both are remembered; later presses start TM-CE straight away, and closing Dolphi
 
 ## For the maintainer: publishing the Windows download
 
-1. On GitHub, open **Actions** → **AI-Melee Windows release** → **Run workflow**, and enter a `release_tag` one past the newest on the Releases page (e.g. `ai-melee-v0.10`). Pushing an `ai-melee-v...` tag does the same.
+1. On GitHub, open **Actions** → **AI-Melee Windows release** → **Run workflow**, and enter a `release_tag` one past the newest on the Releases page (e.g. `ai-melee-v0.11`). Pushing an `ai-melee-v...` tag does the same.
 2. About 12 minutes later the release appears with `AI-Melee-Windows-x86_64.zip` and the text of `tools/agent/RELEASE_NOTES.md`. Re-running with the same tag replaces the zip. If you share the zip on Google Drive too, upload the new one.
 
 Fallback on your own PC (builds the same zip in an Ubuntu container; needs podman): `tools/agent/build_windows_zip.sh` writes `dist/AI-Melee-Windows-x86_64.zip`, which you attach to a new release by hand. melee-pc's own Build workflow only runs when started by hand.
