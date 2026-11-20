@@ -135,14 +135,14 @@ def launch_command(dolphin, iso):
 
 def apply_patch(patch, disc, xdelta3=None):
     """TM-CE's patch applied to your disc; the patched image's path."""
+    if Path(disc).suffix.lower() in (".rvz", ".ciso", ".gcz", ".wia"):  # first: xdelta3 wouldn't help
+        fail(f"TM-CE's patch applies to a plain .iso of your disc, and {Path(disc).name} is compressed. "
+             "Convert it to .iso in Dolphin (right-click it, Convert File...) and pick that.")
     xdelta3 = xdelta3 or shutil.which("xdelta3")
     if not xdelta3:
         fail("applying TM-CE's patch needs xdelta3"
              + (" (Arch/CachyOS: sudo pacman -S xdelta3)" if not WINDOWS else "")
              + ". Or patch your disc as TM-CE's release says, and pick the patched .iso instead.")
-    if Path(disc).suffix.lower() in (".rvz", ".ciso", ".gcz", ".wia"):
-        fail(f"TM-CE's patch applies to a plain .iso of your disc, and {Path(disc).name} is compressed. "
-             "Convert it to .iso in Dolphin (right-click it, Convert File...) and pick that.")
     out = patched_path(patch)
     say(f"applying the TM-CE patch {Path(patch).name} to your disc {Path(disc).name}...")
     r = subprocess.run(patch_command(xdelta3, patch, disc, out), capture_output=True, text=True)
