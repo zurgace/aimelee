@@ -6,6 +6,9 @@ names it phillip-master). A checkout has build/melee and ../phillip. Runs
 play.py's helpers from a copy of the tools placed in each layout.
 """
 
+import contextlib
+import hashlib
+import io
 import json
 import os
 import shutil
@@ -176,6 +179,29 @@ class SlippiRequirementsTest(unittest.TestCase):
         self.assertFalse([ln for ln in reqs if "git+" in ln])
         slippi = next(ln for ln in reqs if ln.startswith("slippi-ai"))
         self.assertRegex(slippi, r"^slippi-ai @ https://github\.com/vladfi1/slippi-ai/archive/[0-9a-f]{40}\.zip$")
+
+
+class SlippiModelTest(unittest.TestCase):
+    def test_only_the_real_medium_v2(self):
+        """A dead link served a 200 HTML page, which was saved as the model and never fetched
+        again. A saved page is fetched again, and only the pinned file is kept."""
+        sys.path.insert(0, str(AGENT))
+        import play
+        good, page = b"\x80\x04model", b"<!DOCTYPE html>"
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(play, "HERE", Path(tmp)), \
+                mock.patch.object(play, "MEDIUM_V2_SHA256", hashlib.sha256(good).hexdigest()), \
+                mock.patch("urllib.request.urlopen") as urlopen, \
+                contextlib.redirect_stdout(io.StringIO()):
+            path = Path(tmp) / "weights" / "slippi" / "medium-v2"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(page)
+            urlopen.return_value = io.BytesIO(page)
+            self.assertIsNone(play.ensure_slippi_model(None), "the page is refused")
+            self.assertFalse(path.with_suffix(".part").exists())
+            urlopen.return_value = io.BytesIO(good)
+            self.assertEqual(play.ensure_slippi_model(None), path)
+            self.assertEqual(path.read_bytes(), good)
 
 
 class CssCharsTest(unittest.TestCase):

@@ -84,6 +84,7 @@ next to a playing agent.
 """
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -257,12 +258,12 @@ def ensure_roster(args):
 SLIPPI_ENV = HERE / "slippi-env"
 SLIPPI_REQUIREMENTS = HERE / "slippi-requirements.txt"
 SLIPPI_MODELS = {
-    # The model slippi-ai's README offers for local play (12 characters).
-    "medium-v2": "https://www.dropbox.com/scl/fi/lpi9krfei1knfvfw7up7v/medium-v2"
-                 "?rlkey=qmah3qfz5anwva93x48zcx01k&st=sxo8hbeb&dl=1",
+    # slippi-ai's medium-v2 (12 characters), hosted on this repo's "models" release since
+    # slippi-ai stopped publishing it.
+    "medium-v2": "https://github.com/zurgace/aimelee/releases/download/models/medium-v2",
 }
-SLIPPI_FOLDER = ("https://www.dropbox.com/scl/fo/mg916t9exid4stqmx2bjf/"
-                 "AD2oysY7SbTa6N0u7j75-SA?rlkey=baqxnfxg2uytvcz62w9o8mwzt&st=eil5kcql&dl=0")
+MEDIUM_V2_SHA256 = "48dcfd87c52fde9899fb37b0293ce2a597fb2384b7b40baf7fb49c760152a96c"  # it gets unpickled
+SLIPPI_FOLDER = "https://drive.google.com/drive/folders/1etYN_IgVoUPleAsh76s_9443e4XzGKWo"
 
 
 def slippi_python():
@@ -272,8 +273,6 @@ def slippi_python():
 def ensure_slippi_env():
     """slippi-ai's Python 3.12 environment, from slippi-requirements.txt. Rebuilt
     when that file changes. None when it cannot be made."""
-    import hashlib
-
     want = hashlib.sha256(SLIPPI_REQUIREMENTS.read_bytes()).hexdigest()
     stamp = SLIPPI_ENV / "requirements.sha256"
     if slippi_python().exists() and stamp.exists() and stamp.read_text().strip() == want:
@@ -297,22 +296,29 @@ def ensure_slippi_env():
     return slippi_python()
 
 
+def is_medium_v2(path):
+    """The real file, not (say) the error page an older play.py saved from a dead link."""
+    return path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == MEDIUM_V2_SHA256
+
+
 def ensure_slippi_model(explicit):
     """The model file: --slippi-model, else medium-v2 (downloaded once)."""
     if explicit:
         path = Path(explicit)
         return path if path.is_file() else None
     path = HERE / "weights" / "slippi" / "medium-v2"
-    if path.is_file():
+    if is_medium_v2(path):
         return path
     import urllib.request
 
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_suffix(".part")
-    print("play: downloading slippi-ai's medium-v2 model from Dropbox ...", flush=True)
+    print("play: downloading slippi-ai's medium-v2 model from GitHub ...", flush=True)
     try:
         with urllib.request.urlopen(SLIPPI_MODELS["medium-v2"], timeout=60) as r, open(part, "wb") as f:
             shutil.copyfileobj(r, f, 1 << 20)
+        if not is_medium_v2(part):
+            raise OSError("the file downloaded is not medium-v2")
         part.replace(path)
     except OSError as e:
         part.unlink(missing_ok=True)

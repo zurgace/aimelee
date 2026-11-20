@@ -29,7 +29,7 @@ what's next; the player guide is the [README](../../README.md).
 ## The newer Phillip (slippi-ai)
 
 - `slippi-requirements.txt` pins slippi-ai to commit 275c072 as a GitHub archive zip (no Git needed, which matters on Windows), with tf-nightly 2.21.0.dev20260203 and libmelee 0.47.3. Python 3.12, CPU, in `slippi-env/` (made by `play.ensure_slippi_env`).
-- Default model medium-v2 (downloaded by `play.ensure_slippi_model`; load it with `slippi_ai.saving.load_state_from_disk`). It's an RL model, 21 frames of delay, 12 characters. On a Ryzen 7 2700X: load 12 s, async step p99 ~10 ms. Play uses `--async-inference`.
+- Default model medium-v2 (downloaded by `play.ensure_slippi_model` from this repo's `models` release, pinned by sha256: slippi-ai deleted it from Dropbox by 2026-11-20; load it with `slippi_ai.saving.load_state_from_disk`). It's an RL model, 21 frames of delay, 12 characters. On a Ryzen 7 2700X: load 12 s, async step p99 ~10 ms. Play uses `--async-inference`.
 - Each frame's Slippi events go to the agent just before that tick's state (protocol v2); the match header is re-sent to a client that connects mid-match. A paused tick sends no frame.
 - Windows CI (`ai-melee-windows-check.yml`) installs slippi-env without Git, probes medium-v2 (p99 ~9-12 ms), runs the live loop tests and a few training steps.
 
