@@ -12,8 +12,8 @@ known gaps are in [tools/agent/NOTES.md](tools/agent/NOTES.md).
 - Don't change game logic under `src/melee` or `src/sysdolphin`. Hooks live in `src/pc` and stay
   inactive unless an env var (e.g. `MELEE_AGENT_SOCKET`) is set. NOTES lists the three approved
   `#ifdef TARGET_PC` exceptions.
-- Small commits, each building and passing tests. Work and push on `claude/eager-planck-jptjp9`
-  (the only branch, and the default): `git push -u origin claude/eager-planck-jptjp9`.
+- Small commits, each building and passing tests. Work on `main`, or on short-lived branches
+  merged into `main`.
 - If something is ambiguous or a design choice is expensive to reverse, stop and ask.
 - No AI model IDs in repo content (commit trailers aside).
 - Don't package Gomihyu further into the Windows installer (her repo is private to the owner).

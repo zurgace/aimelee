@@ -7,7 +7,7 @@ what's next; the player guide is the [README](../../README.md).
 
 | Decision | Why |
 |---|---|
-| Fork of 999sian/melee-pc with full history; all work on `claude/eager-planck-jptjp9` (the only branch, and the default). | Upstream syncs stay plain git. |
+| Fork of 999sian/melee-pc with full history; all work on `main` (the default), or on short-lived branches merged into it. | Upstream syncs stay plain git. |
 | The AI is a separate Python process; the game is a socket server (AF_UNIX, or loopback TCP, the only form on Windows). | The agent can be checked frame by frame against the real Phillip, and any Python agent (slippi-ai, Gomihyu) uses the same socket. |
 | Hooks ride existing per-tick `src/pc` calls (`pc_net_sync`'s offline path, `pc_slp_tick_end`); nothing under `src/melee`/`src/sysdolphin` changes game logic. | Ground rule. |
 | Three approved `#ifdef TARGET_PC` edits in `src/melee`: the test-only `MELEE_DEBUG_VS_CHARS` knob (`gmvsmode.c`); in `mncharsel.c`, the agent's door opening as HMN with a random character from `MELEE_AGENT_CSS_CHARS`, and any cursor moving the agent's HMN token (`pc_agent_css_door`). | The doors and tokens are `static` there, out of `src/pc`'s reach. Unchanged without the bridge. |
