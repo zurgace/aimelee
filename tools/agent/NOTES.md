@@ -67,6 +67,7 @@ By hand: `play.py` (or the launcher) with `--quick`; `dump_state.py` (live state
 ## Known gaps
 
 - **Prewarm boot crash (upstream):** melee-pc's background prewarm once made `LbRb.dat` read as zeros ("HSD_ArchiveParse: byte-order mismatch"). `play.py` sets `MELEE_PREWARM=0`. It should be reported to melee-pc.
+- **Dawn cache prune (aurora):** when the pipeline warm-up drains, `cache_prune` holds the Dawn cache lock through a `DELETE` that takes seconds to minutes on a big `dawn_cache.db` (6 GB on the owner's machine). melee-pc's 10 s pipeline stats line waited on that lock, so the game froze until KDE's Terminate killed it. Fixed: the counters are atomics (`gpu_cache.cpp`). Still waiting on a prune: background pipeline builds, and the game thread on a first-ever Blocking pipeline (RmlUi, `MELEE_PIPELINE_SYNC`). It should be reported to melee-pc.
 - **Results screen:** the bridge forces the agent port to read unplugged on `GS_RESULTS` so one Start moves on.
 - **Full pad queue:** after a long hitch (5+ samples behind), the agent port can see one tick of a neutral pad.
 - **Clang targets** (Android, Apple, Windows ARM64): `max_jumps` would read byte-swapped (as in slp.c). Linux and Windows x86_64 build with GCC.

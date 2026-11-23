@@ -69,18 +69,21 @@ ruff check --select F,E9 --exclude slippi-env,weights,gomi tools/agent
   `ai-melee-v0.11`) to build and publish the Windows zip. The release text is
   `tools/agent/RELEASE_NOTES.md`. v0.3 to v0.10 are published.
 
-## Where we left off (2026-11-20)
+## Where we left off (2026-11-23)
 
-- **Last work:** the default branch is now `main`. slippi-ai deleted medium-v2 from Dropbox, so
-  `play.py` downloads it from this repo's `models` release, pinned by sha256 (55e2d0f). v0.10
-  ships that fix, plus Training Mode (TM-CE in Dolphin), the training progress bar and
-  pause/resume.
+- **Last work:** the "crash" a couple of minutes into a match was a freeze. Aurora's Dawn cache
+  prune held the cache lock while the game thread's 10 s pipeline stats line waited on it, until
+  KDE's Terminate killed the game (NOTES, Known gaps). The counters are atomics now
+  (`gpu_cache.cpp`). Before that, v0.10: medium-v2 from this repo's `models` release (55e2d0f),
+  Training Mode (TM-CE in Dolphin), the training progress bar and pause/resume.
 - **Open items for the owner:**
+  - **The freeze fix:** play past the end of the pipeline warm-up (about 2 minutes) and confirm
+    the game keeps running. "Pruned N stale Dawn cache entries" in the log means the prune finished.
   - **TM-CE:** confirm that its release is an `.xdelta` and that `dolphin -b -e` boots the patched
     ISO (plain and Slippi Dolphin); v0.10 shipped before this was checked. If not, plan again.
   - **Gomi's Falco network:** the owner's ~8 h training run. Does it play like them? The move
     libraries' timings still want tuning from real play.
   - **Older:**
     - the delay18 agents (Google Drive) are unverified;
-    - report the prewarm boot crash to melee-pc;
+    - report the prewarm boot crash and the Dawn cache freeze to melee-pc;
     - one flaky test run was never reproduced.

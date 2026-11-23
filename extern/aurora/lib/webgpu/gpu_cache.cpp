@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cstring>
 #include <cstdint>
 #include <mutex>
@@ -28,7 +29,12 @@ static sqlite3_stmt* store_stmt;
 static bool cache_broken;
 static std::mutex cache_mutex;
 static std::vector<XXH128_hash_t> cache_keys_used;
-static CacheStats cache_counters; /* guarded by cache_mutex */
+/* AI-Melee: atomics, not under cache_mutex. The game thread reads them for the pipeline stats line every 10 s,
+ * and cache_prune holds cache_mutex through a DELETE that can outlast the desktop's "not responding" timeout. */
+static struct {
+  std::atomic_uint32_t hits, misses, stores;
+  std::atomic_uint64_t hitBytes, storeBytes;
+} cache_counters;
 #if defined(AURORA_CACHE_USE_ZSTD)
 static std::vector<uint8_t> compress_buffer;
 #endif
@@ -364,8 +370,11 @@ void store_to_cache(void const* key, size_t keySize, void const* value, size_t v
 }
 
 CacheStats cache_stats() {
-  std::lock_guard lock(cache_mutex);
-  return cache_counters;
+  return {.hits = cache_counters.hits,
+          .misses = cache_counters.misses,
+          .stores = cache_counters.stores,
+          .hitBytes = cache_counters.hitBytes,
+          .storeBytes = cache_counters.storeBytes};
 }
 
 void cache_prune() {
@@ -436,7 +445,8 @@ void cache_shutdown() {
   compress_buffer.clear();
 #endif
   cache_keys_used.clear();
-  cache_counters = {};
+  cache_counters.hits = cache_counters.misses = cache_counters.stores = 0;
+  cache_counters.hitBytes = cache_counters.storeBytes = 0;
   if (load_stmt != nullptr) {
     check(sqlite3_finalize(load_stmt));
     load_stmt = nullptr;
